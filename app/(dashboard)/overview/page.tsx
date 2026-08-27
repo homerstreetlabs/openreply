@@ -90,7 +90,7 @@ export default function OverviewPage() {
         <p className="text-sm text-error">{error}</p>
         {error.includes("connect") && (
           <a
-            href="/api/instagram/connect"
+            href="/api/connect/instagram"
             className="mt-4 inline-block text-sm text-accent hover:underline"
           >
             Connect Instagram
@@ -143,11 +143,7 @@ export default function OverviewPage() {
           </label>
           {accounts.length > 1 && (
             <AccountSelect
-              accounts={accounts.map((a) => ({
-                id: a.id,
-                username: a.username,
-                instagramId: a.id,
-              }))}
+              accounts={accounts}
               value={selectedAccountId}
               onChange={handleAccountChange}
             />
@@ -165,7 +161,7 @@ export default function OverviewPage() {
             the meantime.
           </p>
           <a
-            href="/api/instagram/connect"
+            href="/api/connect/instagram"
             className="mt-3 inline-block text-sm text-accent hover:underline"
           >
             Reconnect Instagram

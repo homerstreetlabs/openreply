@@ -1,0 +1,981 @@
+// OpenReply — multi-platform creator response engine.
+//
+// ══════════════════════════════════════════════════════════════════════════════
+// MIGRATION OVER LIVE DATA — read this before the models
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// The load-bearing trick is that almost every rename is LOGICAL ONLY. Prisma's
+// `@@map` / `@map` let the new model names sit over the existing physical
+// tables and columns, so the big renames — `InstagramAccount` ->
+// `ConnectedAccount`, `Automation` -> `Campaign`, `DmLog` -> `ResponseRun` —
+// move ZERO rows, rebuild ZERO indexes, and take ZERO downtime.
+//
+// Critically, `DmLog.@@unique([automationId, commentId])` — Phase A constraint
+// 2, the live idempotency contract — survives byte-for-byte as
+// `ResponseRun.@@unique([campaignId, triggerKey])` over the same physical
+// index. `triggerKey` keeps the existing overloaded encodings verbatim:
+// `<commentId>`, `dm:<messageId>`, `reveal:<userId>`.
+//
+// Three deploys, expand -> backfill -> contract:
+//
+// ── Deploy 1: EXPAND (additive DDL only, instantly reversible) ───────────────
+//   - Add `Platform` enum; add `platform` to the account table with
+//     `@default(INSTAGRAM)`.
+//   - Create `ProviderApp` and seed ONE row from the existing env vars
+//     (INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET / WEBHOOK_VERIFY_TOKEN); set
+//     `providerAppId` on every account to it.
+//   - Add nullable `capabilitiesJson`, `region`, `sweepCursor`, `nextSweepAt`,
+//     `compiledPlan`, `draft`, `leaseToken`, `leaseExpiresAt`, `cursor`,
+//     `awaitingSignals`, `awaitUntil`.
+//   - Create new tables: `DeliveryClaim`, `StepOutcome`, `Incident`,
+//     `CreatorInvitation`, `AdminAccessLog`, `QuotaSnapshot`.
+//   - `ALTER TYPE "DmStatus" ADD VALUE` for the three new outcomes (online in
+//     Postgres). Existing values are all reused, so reports do not break.
+//   - Create `PlatformGrant` and insert one ADMIN row per operator account,
+//     self-issued with a reason. No column on `User`: cross-creator access is
+//     a set of auditable rows, and the migration is the first audit entry.
+//   Old code runs unchanged against this schema. Rollback is a redeploy.
+//
+// ── Deploy 2: BACKFILL (idempotent job, resumable, no schema change) ─────────
+//   a. For every account: `negotiate()` -> `capabilitiesJson`. Instagram's
+//      result is deterministic from its granted scopes.
+//   b. For every automation: `draftFromLegacyAutomation(row)` -> `draft`, then
+//      `compile(draft, caps)` -> `compiledPlan`. A campaign that fails to
+//      compile is left with `compiledPlan = null` and raises a
+//      `PLAN_INVALIDATED` incident — it keeps running on the legacy path until
+//      cutover, and an admin sees exactly which ones need attention.
+//   c. ★ THE ONE THAT MATTERS ★ backfill `DeliveryClaim` from history:
+//        INSERT INTO "DeliveryClaim" (scope, key, runId, acquiredAt)
+//        SELECT 'ig:private_reply', d."commentId", d.id, d."dmSentAt"
+//        FROM "DmLog" d
+//        WHERE d.status = 'SENT'
+//          AND d."commentId" NOT LIKE 'reveal:%'
+//          AND d."commentId" NOT LIKE 'dm:%'
+//        ON CONFLICT DO NOTHING;
+//      Without this, on cutover a second campaign matching an already-answered
+//      comment would believe the private reply is unspent and burn an API call
+//      that Meta refuses. This is the only step where getting the order wrong
+//      is user-visible.
+//   d. `StepOutcome` is NOT backfilled. Historical rows keep their run-level
+//      `dmSentAt` / `publicReplySentAt` / `status`, which is what
+//      `lib/reports/*` and the shareable report pages already read.
+//
+// ── Deploy 3: CONTRACT (after the new path has run clean for a week) ─────────
+//   - Drop the legacy authoring columns on `Campaign` (`dmMessage`,
+//     `openingDm*`, `requireFollow`, `followPrompt*`, `followUp*`,
+//     `publicReply*`, `linkButtonLabel`, `dmTriggerEnabled`).
+//   - Drop `ProcessedComment.commentId`'s single-column unique in favour of
+//     `@@unique([connectedAccountId, externalId])`.
+//   - Optionally rename the physical tables to match the models and delete the
+//     `@@map`s. Cosmetic; the system does not care.
+//
+// ── Two invariants that live in constraints rather than in code ──────────────
+//   `DeliveryClaim @@unique([scope, key])`
+//       IS Meta's one-private-reply-per-comment rule. No lock, no race window.
+//   `Incident @@unique([connectedAccountId, openKey])`
+//       makes "raise an incident" idempotent, so 4,000 consecutive failures
+//       are one row with count = 4000.
+//
+// ── What is deliberately NOT in Postgres ────────────────────────────────────
+//   Quota counters. They live in `QuotaBucket` Durable Object SQLite, because
+//   the DO's single-threaded execution is the atomicity the Redis Lua `EVAL`
+//   was buying and Postgres would need a row lock per send. `QuotaSnapshot`
+//   below is a STALE MIRROR for the admin view only; the DO is the source of
+//   truth and nothing reads the mirror to make a decision.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../app/generated/prisma"
+  // ~3.6 MB raw vs ~1.85 MB, against a 10 MB gzip Worker ceiling shared with
+  // all of Next.js. Measure with `wrangler deploy --dry-run --outdir`.
+  compilerBuild = "small"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ═══ Auth (unchanged) ════════════════════════════════════════════════════════
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  ownedWorkspaces     Workspace[]           @relation("WorkspaceOwner")
+  workspaceMembers    WorkspaceMember[]
+  sentInvitations     WorkspaceInvitation[] @relation("WorkspaceInvitationsSent")
+  sentCreatorInvites  CreatorInvitation[]   @relation("CreatorInvitesSent")
+  adminAccessLogs     AdminAccessLog[]
+  /// Cross-creator access. See `PlatformGrant` — this is deliberately a set of
+  /// rows rather than a column, because "who can read every creator's data" is
+  /// a question that must be answerable historically, not just currently.
+  platformGrants      PlatformGrant[]       @relation("GrantHolder")
+  issuedGrants        PlatformGrant[]       @relation("GrantIssuer")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ═══ Tenancy ═════════════════════════════════════════════════════════════════
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Retained so historical reporting keeps working. It is NO LONGER the
+  /// enforcement point: the monthly allowance is a quota bucket like every
+  /// other budget, which is what removes the paired reserve/release dance
+  /// from the send path.
+  usagePeriodStart  DateTime @default(now())
+  dmsSentThisPeriod Int      @default(0)
+
+  /// Set when the workspace was provisioned by a creator invitation, so the
+  /// admin overview can distinguish an enrolled creator from a self-signup.
+  provisionedFromInviteId String? @unique
+
+  members           WorkspaceMember[]
+  invitations       WorkspaceInvitation[]
+  connectedAccounts ConnectedAccount[]
+  campaigns         Campaign[]
+  runs              ResponseRun[]
+  trackedLinks      TrackedLink[]
+  linkClicks        LinkClick[]
+  webhookEvents     WebhookEvent[]
+  incidents         Incident[]
+  adminAccessLogs   AdminAccessLog[]
+
+  @@index([ownerId])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(OWNER)
+  createdAt   DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+/// Collaborator invited into an EXISTING workspace. Unchanged.
+model WorkspaceInvitation {
+  id              String                    @id @default(cuid())
+  workspaceId     String
+  email           String
+  role            WorkspaceRole             @default(MEMBER)
+  token           String                    @unique
+  status          WorkspaceInvitationStatus @default(PENDING)
+  invitedByUserId String?
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User?     @relation("WorkspaceInvitationsSent", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, email])
+  @@index([email])
+  @@index([workspaceId])
+  @@index([status])
+}
+
+/// A UGC creator invited by a platform admin. PROVISIONS a workspace rather
+/// than joining one, and the invitee becomes its OWNER. A separate model from
+/// WorkspaceInvitation because the lifecycles differ; overloading one status
+/// enum with two lifecycles is how invitation bugs happen.
+model CreatorInvitation {
+  id               String                    @id @default(cuid())
+  email            String
+  creatorName      String
+  token            String                    @unique
+  status           WorkspaceInvitationStatus @default(PENDING)
+  invitedByUserId  String
+  /// Onboarding checklist: which platforms we expect this creator to connect.
+  expectedPlatforms Platform[]
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  /// Set on acceptance. Its presence is what makes acceptance idempotent —
+  /// a second click finds it and returns the same workspace.
+  workspaceId      String?
+  /// Set when Cloudflare Email suppressed this address account-wide. Without
+  /// it, `E_RECIPIENT_SUPPRESSED` is a silent permanent lockout.
+  emailSuppressedAt DateTime?
+  /// Holds `email` while PENDING, NULL otherwise. Same partial-unique trick as
+  /// `Incident.openKey`: at most one OPEN invitation per address, while a
+  /// revoked or expired one can be re-issued. A plain `@@unique([email])` would
+  /// make re-inviting a bounced creator impossible.
+  pendingEmail      String?                   @unique
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  invitedBy User @relation("CreatorInvitesSent", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([status])
+}
+
+/// Every time a platform admin entered a creator's workspace, and why.
+/// Impersonation without an audit trail is how a support feature becomes a
+/// compliance problem.
+/// Cross-creator access, as an auditable row.
+///
+/// GRAFTED from arena candidate 2, replacing this design's original
+/// `User.platformRole` column.
+///
+/// A column answers "is this person an admin?" and nothing else. It cannot say
+/// who granted it, when, why, whether it was meant to be temporary, or who
+/// could read a given creator's inbox last March. For a system whose whole
+/// purpose is holding other people's social accounts and reading their DMs,
+/// that is the wrong shape: the interesting question is almost always
+/// historical, and a column has already forgotten.
+///
+/// Composes with `AdminAccessLog` rather than replacing it. The grant is the
+/// STANDING permission; the log is each USE of it. Both are needed — a grant
+/// with no uses is dormant, a use with no grant is a bug.
+model PlatformGrant {
+  id     String            @id @default(cuid())
+  userId String
+  tier   PlatformGrantTier
+
+  grantedByUserId String
+  grantedAt       DateTime  @default(now())
+  /// Null means indefinite. Prefer setting it: a support grant for one incident
+  /// should not outlive the incident, and an expiry is the only mechanism that
+  /// enforces that without someone remembering.
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  /// Why this was granted. Free text, required by convention at the call site —
+  /// an audit trail nobody can read is decoration.
+  reason          String?
+
+  user      User @relation("GrantHolder", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User @relation("GrantIssuer", fields: [grantedByUserId], references: [id], onDelete: Restrict)
+
+  /// A user may hold several grants over time; "active" is
+  /// `revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now())`, resolved
+  /// once per request into the `PlatformScope`. Revoked and expired rows are
+  /// kept forever — that is the point of the table.
+  @@index([userId, revokedAt])
+  @@index([tier])
+}
+
+model AdminAccessLog {
+  id          String   @id @default(cuid())
+  adminUserId String
+  workspaceId String
+  reason      String
+  createdAt   DateTime @default(now())
+
+  admin     User      @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([adminUserId, createdAt])
+}
+
+// ═══ Platform connection ═════════════════════════════════════════════════════
+
+/// One set of app credentials for one platform. MULTIPLE rows per platform are
+/// required, not optional: one Meta app cannot hold both an Instagram-Login
+/// setup and a Pages/Messenger setup ("You can only add one setup per app"),
+/// and use cases are irreversible. This is why app credentials are a table and
+/// not `INSTAGRAM_APP_ID` in the environment.
+model ProviderApp {
+  id       String   @id @default(cuid())
+  platform Platform
+  /// URL-safe. Forms the ingest path `/api/ingest/{platform}/{slug}`, so each
+  /// route has exactly ONE bound webhook secret instead of trying every known
+  /// secret against every payload.
+  slug     String
+
+  label             String
+  clientId          String
+  /// AES-256-GCM, same key and scheme as today.
+  clientSecretEnc   String
+  /// Often NOT the client secret — an Instagram-Login app signs webhooks with
+  /// the Instagram App Secret, distinct from the Meta App Secret.
+  webhookSecretEnc  String?
+  verifyToken       String?
+  /// Identity of a quota pool shared by every account on this app. YouTube:
+  /// the Google Cloud project id, which IS the 10,000-units/day pool. TikTok:
+  /// the app, for its 600 QPM ceiling. Meta: null.
+  quotaPoolKey      String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  accounts ConnectedAccount[]
+
+  @@unique([platform, slug])
+  @@index([platform])
+}
+
+/// Was `InstagramAccount`. Same physical table.
+model ConnectedAccount {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  platform      Platform @default(INSTAGRAM)
+  providerAppId String?
+
+  /// Was `instagramId`. The platform's own id and the key webhooks arrive
+  /// under: Instagram's professional account id (`user_id`, not the app-scoped
+  /// `id`), a Facebook Page id, a TikTok `open_id`, a YouTube channel id.
+  externalId String @map("instagramId")
+  /// Was `username`.
+  handle     String @map("username")
+  /// Was `name`.
+  displayName String? @map("name")
+
+  accessToken       String
+  refreshToken      String?
+  tokenExpiresAt    DateTime?
+  webhookSubscribed Boolean   @default(false)
+  connectedAt       DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  /// Serialized `AccountCapabilities`: granted set, decline reasons, copy
+  /// policy. PER-ACCOUNT, not per-platform — two TikTok creators in one
+  /// workspace can differ by registration region, and that state has no home
+  /// in the current schema and cannot be an env var.
+  capabilitiesJson     Json?
+  /// Stable hash of the granted set + copy policy. Every compiled plan carries
+  /// a copy; a mismatch means capabilities moved under a running campaign.
+  capabilityFingerprint String?
+  /// ISO country of the account's registration, when the platform reports it.
+  region                String?
+
+  /// Discovery scheduling. `nextSweepAt` is a plain indexed column, so "which
+  /// accounts are due" is one index scan — no per-account Durable Object alarm,
+  /// and the schedule survives a redeploy.
+  sweepEnabled  Boolean   @default(true)
+  sweepPriority Int       @default(0)
+  sweepCursor   String?
+  nextSweepAt   DateTime?
+
+  /// Rolling counters for the admin overview, incremented on the write path.
+  /// The alternative — aggregating `ResponseRun` across every workspace — is a
+  /// scan over the largest table to answer a question that changes rarely.
+  sent24h        Int       @default(0)
+  failed24h      Int       @default(0)
+  countersResetAt DateTime @default(now())
+  lastDeliveryAt DateTime?
+
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  providerApp       ProviderApp?       @relation(fields: [providerAppId], references: [id], onDelete: SetNull)
+  campaigns         Campaign[]
+  runs              ResponseRun[]
+  linkClicks        LinkClick[]
+  followerSnapshots FollowerSnapshot[]
+  incidents         Incident[]
+  seenTriggers      SeenTrigger[]
+  quotaSnapshots    QuotaSnapshot[]
+  messagingContacts MessagingContact[]
+
+  /// Additive in deploy 1; the legacy single-column unique on `instagramId`
+  /// stays until deploy 3, since it is a strictly narrower constraint and
+  /// dropping it early would be the only irreversible step in the migration.
+  @@unique([platform, externalId])
+  @@index([workspaceId])
+  @@index([nextSweepAt])
+  @@index([platform])
+  @@map("InstagramAccount")
+}
+
+/// One person we can message, per connected account.
+///
+/// GRAFTED from arena candidate 1. The base recorded Facebook's send-time PSID
+/// on `DeliveryReceipt.discoveredUserId` but had nowhere to keep it. Three
+/// separate facts need one home, and all three are invisible until you try to
+/// send a SECOND message:
+///
+///   1. The addressable id is often NOT in the trigger. A Facebook `feed`
+///      webhook carries `from.id`, whose ID scope Meta never documents; the
+///      real PSID comes back only in the private-reply RESPONSE. The comment id
+///      is the addressing token for the first message and cannot address a
+///      second one.
+///   2. TikTok's conversation list returns `conversation_id` but NOT
+///      `unique_identifier`, while `comment.update` carries `unique_identifier`
+///      but no conversation. TikTok states the identifier is *"consistent across
+///      different APIs"* — so the join exists, but only if we persist it when we
+///      see both. Nothing recreates it later.
+///   3. Messaging windows and budgets are per-person, not per-account:
+///      Instagram 24h, Facebook 24h-after-their-reply, TikTok 48h with a
+///      10-message initial cap. Without this row, "may I send?" is unanswerable
+///      without a live API call on every send.
+///
+/// This is also what makes the DM inbox (`CONVERSATION_HISTORY`) attributable:
+/// it is the only place a TikTok conversation can be traced back to the
+/// commenter who started it.
+model MessagingContact {
+  id                 String @id @default(cuid())
+  connectedAccountId String
+
+  /// The person's platform identity as it appears on a TRIGGER: Instagram
+  /// IGSID, Facebook `feed.value.from.id`, TikTok `unique_identifier`,
+  /// YouTube author channel id (recorded but never messageable).
+  platformUserId String
+
+  /// Where a message can actually be SENT: Facebook PSID, Instagram IGSID,
+  /// TikTok `conversation_id`. Null until discovered — on Facebook that is
+  /// after the first private reply, which is exactly the point.
+  channelAddress String?
+
+  displayName String?
+
+  /// When the platform's messaging window shuts. Advisory: the adapter is still
+  /// the authority at send time, because a window can close early (a block, a
+  /// deleted conversation) and no local clock knows that.
+  windowExpiresAt DateTime?
+
+  /// TikTok's 10-message initial-window budget. Null on platforms with no
+  /// per-conversation message cap — absence means "uncapped", not "zero".
+  messagesRemaining Int?
+
+  firstContactAt DateTime  @default(now())
+  lastInboundAt  DateTime?
+  lastOutboundAt DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+
+  /// New table in deploy 1, written forward only. Historical contacts are not
+  /// backfilled: the addressable id was never persisted, so there is nothing to
+  /// backfill FROM. Consequence, stated rather than discovered later — a
+  /// follow-up to someone last messaged before the cut re-discovers the address
+  /// on next contact.
+  @@unique([connectedAccountId, platformUserId])
+  @@index([connectedAccountId, windowExpiresAt])
+}
+
+/// Daily follower total. Instagram retains ~30 days of insights, so history
+/// beyond that exists only because we record it. Unchanged apart from the FK
+/// rename.
+model FollowerSnapshot {
+  id                 String   @id @default(cuid())
+  connectedAccountId String   @map("instagramAccountId")
+  date               DateTime @db.Date
+  followersCount     Int
+  backfilled         Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([connectedAccountId, date])
+  @@index([connectedAccountId, date])
+}
+
+// ═══ Campaigns ═══════════════════════════════════════════════════════════════
+
+/// Was `Automation`. Same physical table.
+///
+/// The authoring surface is now `draft` (loose JSON from the builder, the only
+/// untrusted shape in the system) and the executable surface is `compiledPlan`
+/// (validated against the account's capabilities at save time). Everything past
+/// the compiler is trusted.
+model Campaign {
+  id                 String @id @default(cuid())
+  workspaceId        String
+  connectedAccountId String @map("instagramAccountId")
+
+  name String
+  goal String?
+
+  /// Target: was `postId` / `postUrl` / `matchAnyPost` / `pendingNextReel`.
+  /// Kept as columns rather than folded into `draft` because the sweep and the
+  /// next-post cron query on them.
+  postId          String?
+  postUrl         String?
+  matchAnyPost    Boolean @default(false)
+  pendingNextPost Boolean @default(false) @map("pendingNextReel")
+
+  /// Match: unchanged. `lib/utils/keyword-matcher.ts` moves across untouched.
+  keywords       String[]
+  matchAnyWord   Boolean  @default(false)
+  wholeWordMatch Boolean  @default(true)
+
+  /// Which inbound events may start this campaign. Replaces the boolean
+  /// `dmTriggerEnabled`, promoting the inbound-DM trigger from an afterthought
+  /// to a first-class trigger equal to the comment trigger — which matters
+  /// because it is the only compliant shape on TikTok and it is already built.
+  triggers TriggerKind[] @default([COMMENT])
+
+  /// `CampaignDraft`. What the builder round-trips.
+  draft Json?
+  /// `CompiledPlan`. What the engine executes. Null means the campaign has not
+  /// been migrated or no longer compiles — see PLAN_INVALIDATED.
+  compiledPlan Json?
+  /// Must equal the account's current `capabilityFingerprint` for the compiled
+  /// plan to be used without recompiling.
+  capabilityFingerprint String?
+
+  isActive           Boolean @default(true)
+  reportShareSlug    String? @unique
+  reportShareEnabled Boolean @default(true)
+
+  // ── Legacy authoring columns, dropped in deploy 3. ────────────────────────
+  // Read only by `draftFromLegacyAutomation`. Kept through deploys 1 and 2 so
+  // the old worker can still run against the same rows, which is what makes
+  // the migration reversible.
+  dmMessage               String?
+  dmTriggerEnabled        Boolean  @default(false)
+  openingDmEnabled        Boolean  @default(false)
+  openingDmMessage        String?
+  openingDmButtonLabel    String?
+  linkButtonLabel         String?
+  requireFollow           Boolean  @default(false)
+  followPromptMessage     String?
+  followPromptButtonLabel String?
+  followUpEnabled         Boolean  @default(false)
+  followUpMessage         String?
+  followUpDelayMinutes    Int      @default(0)
+  publicReplyEnabled      Boolean  @default(false)
+  publicReplyMessage      String?
+  publicReplyMessages     String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+  runs             ResponseRun[]
+  trackedLinks     TrackedLink[]
+  linkClicks       LinkClick[]
+
+  @@index([workspaceId])
+  @@index([connectedAccountId])
+  @@index([postId])
+  @@index([pendingNextPost])
+  @@map("Automation")
+}
+
+// ═══ Execution ═══════════════════════════════════════════════════════════════
+
+/// Was `DmLog`. Same physical table, same unique index — promoted from an
+/// outcome ledger to a resumable state machine.
+///
+/// This is what collapses today's three BullMQ job types (`process-comment`,
+/// `process-postback`, `process-followup`) plus the delayed read-fallback into
+/// one operation, `advanceRun`.
+model ResponseRun {
+  id                 String @id @default(cuid())
+  workspaceId        String
+  campaignId         String @map("automationId")
+  connectedAccountId String @map("instagramAccountId")
+
+  /// Was `commentId`. FORMAT FROZEN for existing rows:
+  ///   `<commentId>`      comment-triggered
+  ///   `dm:<messageId>`   inbound-DM-triggered
+  ///   `reveal:<userId>`  legacy standalone reveal
+  /// The overloading was always doing the work of a discriminated key; naming
+  /// it `triggerKey` is the only change.
+  triggerKey String @map("commentId")
+
+  /// Was `commenterId` / `commenterName` / `commentText`.
+  counterpartyId   String  @map("commenterId")
+  counterpartyName String? @map("commenterName")
+  triggerText      String  @map("commentText")
+  matchedKeyword   String?
+
+  commentExternalId String?
+  postExternalId    String?
+
+  status   DmStatus @default(PENDING)
+  attempts Int      @default(0)
+
+  /// Index of the next step to attempt.
+  cursor          Int      @default(0)
+  awaitingSignals String[] @default([])
+  awaitUntil      DateTime?
+  onTimeout       String?
+
+  /// At-least-once delivery guard. Cloudflare Queues has no deterministic
+  /// job-id dedup (BullMQ's `jobId` has no equivalent), so the run leases
+  /// ITSELF with a conditional UPDATE. The row has to be read anyway, so the
+  /// lease is free, strongly consistent, self-expiring, and keeps identity and
+  /// mutual exclusion in one place instead of two.
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+
+  /// Report projections. WRITE-ONLY from the engine's point of view: the
+  /// idempotency decision reads `StepOutcome`, never these. Kept so
+  /// `lib/reports/*` and the shareable report pages need no change and
+  /// historical rows stay meaningful.
+  dmSentAt          DateTime?
+  errorMessage      String?
+  publicReplySentAt DateTime?
+  publicReplyError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign         Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+  outcomes         StepOutcome[]
+  claims           DeliveryClaim[]
+
+  /// Physically the existing `@@unique([automationId, commentId])`.
+  @@unique([campaignId, triggerKey])
+  @@index([workspaceId])
+  @@index([campaignId])
+  @@index([connectedAccountId])
+  @@index([status])
+  @@index([awaitUntil])
+  @@index([connectedAccountId, counterpartyId])
+  @@map("DmLog")
+}
+
+/// One row per (run, step). The unique constraint IS the idempotency
+/// primitive, generalising today's `publicReplySentAt`: a step with a terminal
+/// outcome and `repeat: "once"` is never executed again, no matter how many
+/// times the queue redelivers or the reconciler re-finds the comment.
+model StepOutcome {
+  id         String   @id @default(cuid())
+  runId      String
+  stepIndex  Int
+  kind       String
+  status     DmStatus
+  externalId String?
+  error      String?
+  createdAt  DateTime @default(now())
+
+  run ResponseRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, stepIndex])
+  @@index([runId])
+}
+
+/// A scarce, externally owned, one-shot resource.
+///
+/// `@@unique([scope, key])` IS Meta's one-private-reply-per-comment rule —
+/// enforced by the database rather than by a read-then-write in the worker, so
+/// there is no race window and it survives a Worker eviction mid-send.
+/// Facebook gets the rule for free by emitting the same claim shape with a
+/// different scope; YouTube emits none and never touches this table.
+///
+/// A claim is NEVER released on expiry: the platform's one-shot is spent
+/// whether or not the window is still open. It is released only when
+/// `Failure.attempted === "no"`, i.e. the platform provably did not act.
+model DeliveryClaim {
+  id         String   @id @default(cuid())
+  /// e.g. `ig:private_reply`, `fb:private_reply`, `tt:comment_dm`.
+  /// Prefixed with the platform id so two platforms cannot collide on a shared
+  /// id space — asserted in `assertRegistryInvariants`.
+  scope      String
+  key        String
+  runId      String
+  acquiredAt DateTime @default(now())
+  /// Informational: when the platform's window closes. Drives the admin
+  /// explanation "this comment can no longer be privately replied to".
+  expiresAt  DateTime?
+
+  run ResponseRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([scope, key])
+  @@index([runId])
+}
+
+/// Was `ProcessedComment`. Every trigger the system has seen, from any
+/// discovery path — the shared dedup set that stops the webhook and the sweep
+/// acting on the same comment twice, and stops the sweep re-examining
+/// non-matching comments every cycle.
+model SeenTrigger {
+  id                 String   @id @default(cuid())
+  connectedAccountId String   @map("instagramAccountId")
+  externalId         String   @map("commentId")
+  source             String
+  seenAt             DateTime @default(now())
+
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+
+  /// Deploy 3 replaces the legacy single-column unique on `commentId` with
+  /// this, since comment ids are only unique within a platform.
+  @@unique([connectedAccountId, externalId])
+  @@index([connectedAccountId])
+  @@map("ProcessedComment")
+}
+
+// ═══ Links and analytics (unchanged) ═════════════════════════════════════════
+
+model TrackedLink {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  campaignId     String   @map("automationId")
+  slug           String   @unique
+  label          String?
+  destinationUrl String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign  Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  clicks    LinkClick[]
+
+  @@index([workspaceId])
+  @@index([campaignId])
+}
+
+model LinkClick {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  campaignId         String   @map("automationId")
+  connectedAccountId String   @map("instagramAccountId")
+  trackedLinkId      String
+  ipHash             String?
+  userAgent          String?
+  referrer           String?
+  createdAt          DateTime @default(now())
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign         Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+  trackedLink      TrackedLink      @relation(fields: [trackedLinkId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([campaignId])
+  @@index([connectedAccountId])
+  @@index([trackedLinkId])
+  @@index([createdAt])
+  @@index([workspaceId, createdAt])
+}
+
+// ═══ Operations ══════════════════════════════════════════════════════════════
+
+/// Raw webhook audit. Written by the QUEUE CONSUMER now, not by the ingest
+/// route: Meta requires a 200 within five seconds and auto-unsubscribes after
+/// an hour of failures, so nothing the acknowledgement does not need may sit
+/// on that path.
+model WebhookEvent {
+  id           String        @id @default(cuid())
+  workspaceId  String?
+  platform     Platform?
+  providerAppId String?
+  object       String?
+  payload      Json
+  status       WebhookStatus @default(PENDING)
+  errorMessage String?
+  createdAt    DateTime      @default(now())
+  processedAt  DateTime?
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// Replaces `OperationalEvent`, and it is the ALERTING SYSTEM, not just a log.
+/// Cloudflare Notifications has no Workers alert type at all — no alerting on
+/// error rate, queue backlog or failed cron — so the admin overview has to be
+/// the thing that notices, and every adapter is required to classify its
+/// failures into this cross-platform vocabulary.
+model Incident {
+  id                 String   @id @default(cuid())
+  workspaceId        String?
+  connectedAccountId String?
+  campaignId         String?
+
+  kind     IncidentKind
+  severity IncidentSeverity @default(WARNING)
+  message  String
+  detail   Json?
+
+  /// Deduplicated occurrence count. 4,000 consecutive token failures are ONE
+  /// row with count = 4000, not 4,000 rows and not 4,000 alerts.
+  count       Int      @default(1)
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  resolvedAt  DateTime?
+
+  /// Holds `kind` while open, NULL once resolved. Do not read it — it exists
+  /// so the partial-unique below can make `raiseIncident` an idempotent upsert.
+  openKey IncidentKind?
+
+  workspace        Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  connectedAccount ConnectedAccount? @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([connectedAccountId, openKey])
+  @@index([workspaceId])
+  @@index([kind])
+  @@index([severity, lastSeenAt])
+  @@index([resolvedAt])
+}
+
+/// STALE MIRROR of the quota Durable Objects, refreshed by a cron, for the
+/// admin overview only. The DO is the source of truth; nothing reads this to
+/// make a decision. Named honestly so nobody later mistakes it for the ledger.
+model QuotaSnapshot {
+  id                 String   @id @default(cuid())
+  bucketName         String
+  label              String
+  connectedAccountId String?
+  providerAppId      String?
+  workspaceId        String?
+  used               Int
+  capacity           Int
+  shareUsed          Int?
+  shareCeiling       Int?
+  windowResetsAt     DateTime
+  observedAt         DateTime @default(now())
+
+  connectedAccount ConnectedAccount? @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([bucketName])
+  @@index([connectedAccountId])
+  @@index([providerAppId])
+}
+
+// ═══ Enums ═══════════════════════════════════════════════════════════════════
+
+enum Platform {
+  INSTAGRAM
+  FACEBOOK
+  YOUTUBE
+  TIKTOK
+  // A fifth platform adds one line here, one key in `PlatformCeiling`, one
+  // entry in `ADAPTERS`, and one new adapter file. Nothing else.
+}
+
+enum TriggerKind {
+  COMMENT
+  INBOUND_MESSAGE
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+/// The cross-creator access ladder. Ordered least to most.
+///
+/// `SUPPORT_READ` deliberately EXCLUDES message bodies. An operator diagnosing
+/// "why did this automation stop firing" needs statuses, error taxonomies,
+/// quota state and timestamps — none of which require reading what a creator
+/// said to a follower. Making the restricted tier the useful one is what keeps
+/// people from reaching for the unrestricted one out of habit.
+enum PlatformGrantTier {
+  /// Fleet health: account status, incident kinds and counts, quota headroom,
+  /// send/failure counts. NOT: message text, comment text, or recipient
+  /// identities.
+  SUPPORT_READ
+  /// Everything SUPPORT_READ sees, plus message and comment content. Every read
+  /// writes an `AdminAccessLog` row.
+  SUPPORT_FULL
+  /// Can additionally act inside a workspace via `assumeWorkspace`, with every
+  /// write stamped `onBehalfOfAdminId`, and can issue or revoke grants.
+  ADMIN
+}
+
+enum WorkspaceInvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+/// Kept as `DmStatus` with additions rather than replaced, so existing rows,
+/// existing report queries and the 142 existing tests keep their meaning.
+/// `ALTER TYPE ... ADD VALUE` is online in Postgres.
+enum DmStatus {
+  PENDING
+  SENT
+  FAILED
+  /// Another campaign holds the platform's one-shot. Was Instagram-only; now
+  /// any claim collision on any platform.
+  SKIPPED_DEDUP
+  /// A renewable bucket refused and the retry budget is spent.
+  SKIPPED_RATE_LIMIT
+  /// A non-renewable bucket refused (workspace month, YouTube day).
+  SKIPPED_PLAN_LIMIT
+  SKIPPED_NO_MATCH
+  // ── added ──
+  /// Parked, waiting on a signal or a deadline.
+  AWAITING
+  /// A pre-flight probe said this recipient can never take this delivery.
+  SKIPPED_INELIGIBLE
+  /// The follow gate resolved to DROP.
+  DROPPED_BY_GATE
+  /// The plan finished.
+  COMPLETED
+}
+
+enum WebhookStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+enum IncidentKind {
+  TOKEN_EXPIRED
+  TOKEN_REFRESH_FAILED
+  REAUTH_REQUIRED
+  PERMISSION_REVOKED
+  WEBHOOK_UNSUBSCRIBED
+  REGION_INELIGIBLE
+  PLAN_INVALIDATED
+  QUOTA_EXHAUSTED
+  DELIVERY_FAILING
+  QUEUE_BACKLOG
+  POLICY_HOLD
+  EMAIL_SUPPRESSED
+  NO_ACTIVE_CAMPAIGNS
+}
+
+enum IncidentSeverity {
+  INFO
+  WARNING
+  ERROR
+}

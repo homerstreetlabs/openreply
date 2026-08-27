@@ -4,37 +4,35 @@ Thanks for wanting to help. OpenReply is public so the comment-to-DM engine is s
 
 ## Ways to help
 
-- Fix a bug. The DM worker and the webhook parser are the parts that matter most.
-- Improve the docs. If you hit a Meta setup quirk that is not written down, adding it to `docs/setup.md` is as valuable as a code fix. That guide is where people lose the most time.
+- Fix a bug. The send engine (`workers/engine/`, `lib/queue/`) and the webhook parser are the parts that matter most.
+- Improve the docs. If you hit a platform setup quirk that is not written down, adding it to `docs/setup.md` is as valuable as a code fix. That guide is where people lose the most time.
 - Add campaign templates in `lib/templates/`.
-- Add tests. The suite runs with `npm test`.
+- Add tests. The suite runs with `pnpm test`.
 
 ## Development setup
 
+This repo uses pnpm, pinned by the `packageManager` field in `package.json`. If you do not have it, `corepack enable pnpm` is enough. Do not install with npm or yarn. The lockfile is `pnpm-lock.yaml`.
+
 ```bash
-npm install
-docker-compose up -d
+pnpm install
+docker-compose up -d      # starts Postgres
 cp .env.example .env      # fill in the values, see docs/setup.md
-npm run db:generate
-npm run db:migrate
-npm run dev
+pnpm db:generate
+pnpm db:migrate
+pnpm dev
 ```
 
-Run the worker in a second terminal, since it is what sends the DMs:
-
-```bash
-npm run worker
-```
+Sends run in the engine Worker on Cloudflare. Under plain `next dev` the queue bindings are absent, so nothing sends; that is fine for most development. Use `pnpm preview` to run the real Worker build in workerd, and `pnpm cf-typegen` to regenerate the binding types after editing either wrangler config.
 
 ## Before you open a pull request
 
 Branch from `main`, keep the change focused on one thing, and make sure these pass:
 
 ```bash
-npm run typecheck
-npm run lint
-npm test
-npm run build
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
 ```
 
 If a check cannot run in your environment, say why in the pull request body. A small, clear pull request is easier to merge than a large one that touches many things at once.
@@ -49,7 +47,7 @@ A template contribution should include a name, the target niche, a suggested pos
 
 ## Reporting bugs
 
-Open an issue with what you did, what you expected, and what happened. For anything involving a webhook or a failed send, the Postgres tables describe it best: `WebhookEvent` for delivery, `DmLog` for send status, `OperationalEvent` for worker errors.
+Open an issue with what you did, what you expected, and what happened. For anything involving a webhook or a failed send, the Postgres tables describe it best: `WebhookEvent` for delivery, `DmLog` for send status, `OperationalEvent` for engine errors.
 
 ## Security
 

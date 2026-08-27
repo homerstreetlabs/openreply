@@ -30,5 +30,10 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    // Reference Worker for the deploy-0 spike. Needs @cloudflare/workers-types,
+    // which the app does not depend on. Kept as documentation, not built.
+    "docs/architecture/spike"
+  ]
 }

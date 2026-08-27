@@ -1,23 +1,75 @@
-import { getRedisConnection } from "@/lib/queue/client";
+/**
+ * Engine health.
+ *
+ * Was a Redis heartbeat written every 30 seconds by an always-on process, plus
+ * a capped alerts list. Neither survives the move: there is no always-on
+ * process to beat, and no Redis to write to.
+ *
+ * The replacement is better, not merely different. A heartbeat proved a process
+ * was alive, which was only ever a proxy for "is work getting done". The
+ * queue's oldest-message age answers that directly, so a consumer that is
+ * running but wedged now reads as unhealthy where a heartbeat would have called
+ * it fine.
+ *
+ * Alerts move to `OperationalEvent` in Postgres, which they were already being
+ * written to alongside Redis. That was duplicated state with two writers; per
+ * separate-before-serializing-shared-state, one of them had to go, and the
+ * durable one stays.
+ */
 
-const WORKER_HEALTH_KEY = "health:worker:dm";
-const WORKER_ALERTS_KEY = "alerts:worker:dm";
-const WORKER_HEARTBEAT_TTL_SECONDS = 120;
+import { z } from "zod";
+import { prisma } from "@/lib/db/client";
+import { queueHealth } from "@/lib/queue/client";
 
-export interface WorkerHeartbeat {
-  status: "running";
-  worker: "dm";
-  pid: number;
-  hostname?: string;
-  startedAt?: string;
-  checkedAt: string;
-}
+/** Backlog older than this means the consumer is not keeping up. */
+const STALE_BACKLOG_MS = 5 * 60 * 1000;
 
 export interface WorkerHealth {
   healthy: boolean;
-  heartbeat: WorkerHeartbeat | null;
-  ageMs: number | null;
+  backlog: number | null;
+  oldestMessageAgeMs: number | null;
+  deadLettered: number | null;
+  detail: string;
 }
+
+export async function getWorkerHealth(): Promise<WorkerHealth> {
+  const health = await queueHealth();
+
+  if (!health) {
+    return {
+      healthy: false,
+      backlog: null,
+      oldestMessageAgeMs: null,
+      deadLettered: null,
+      detail: "Queue bindings unavailable. Not running inside a Worker.",
+    };
+  }
+
+  // An empty queue has no oldest message, which is the healthiest state there
+  // is. Treating null as unhealthy would report a working system as broken
+  // exactly when it has caught up.
+  const stalled =
+    health.oldestMessageAgeMs !== null && health.oldestMessageAgeMs > STALE_BACKLOG_MS;
+
+  return {
+    healthy: !stalled,
+    backlog: health.backlog,
+    oldestMessageAgeMs: health.oldestMessageAgeMs,
+    deadLettered: health.deadLettered,
+    detail: stalled
+      ? `Oldest queued job is ${Math.round(health.oldestMessageAgeMs! / 1000)}s old; the consumer is not keeping up.`
+      : "Queue draining normally.",
+  };
+}
+
+/** What recordWorkerAlert writes. Anything else in the column is ignored. */
+const alertFields = z
+  .object({
+    jobId: z.string().nullish(),
+    instagramAccountId: z.string().nullish(),
+    commentId: z.string().nullish(),
+  })
+  .partial();
 
 export interface WorkerAlert {
   level: "warning" | "error";
@@ -28,69 +80,41 @@ export interface WorkerAlert {
   createdAt: string;
 }
 
-function parseJson<T>(value: string | null): T | null {
-  if (!value) return null;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
-}
-
-export async function recordWorkerHeartbeat(
-  heartbeat: Omit<WorkerHeartbeat, "checkedAt" | "status" | "worker">
-) {
-  const payload: WorkerHeartbeat = {
-    ...heartbeat,
-    status: "running",
-    worker: "dm",
-    checkedAt: new Date().toISOString(),
-  };
-
-  await getRedisConnection().set(
-    WORKER_HEALTH_KEY,
-    JSON.stringify(payload),
-    "EX",
-    WORKER_HEARTBEAT_TTL_SECONDS
-  );
-}
-
-export async function getWorkerHealth(): Promise<WorkerHealth> {
-  const heartbeat = parseJson<WorkerHeartbeat>(
-    await getRedisConnection().get(WORKER_HEALTH_KEY)
-  );
-
-  if (!heartbeat) {
-    return { healthy: false, heartbeat: null, ageMs: null };
-  }
-
-  const ageMs = Date.now() - new Date(heartbeat.checkedAt).getTime();
-  return {
-    healthy: ageMs <= WORKER_HEARTBEAT_TTL_SECONDS * 1000,
-    heartbeat,
-    ageMs,
-  };
-}
-
 export async function recordWorkerAlert(alert: Omit<WorkerAlert, "createdAt">) {
-  const payload: WorkerAlert = {
-    ...alert,
-    createdAt: new Date().toISOString(),
-  };
-
-  const redis = getRedisConnection();
-  await redis.lpush(WORKER_ALERTS_KEY, JSON.stringify(payload));
-  await redis.ltrim(WORKER_ALERTS_KEY, 0, 24);
+  await prisma.operationalEvent
+    .create({
+      data: {
+        source: "WORKER",
+        level: alert.level === "error" ? "ERROR" : "WARNING",
+        message: alert.message,
+        payload: {
+          jobId: alert.jobId ?? null,
+          instagramAccountId: alert.instagramAccountId ?? null,
+          commentId: alert.commentId ?? null,
+        },
+      },
+    })
+    .catch(() => {});
 }
 
 export async function getWorkerAlerts(limit = 10): Promise<WorkerAlert[]> {
-  const values = await getRedisConnection().lrange(
-    WORKER_ALERTS_KEY,
-    0,
-    Math.max(0, limit - 1)
-  );
+  const rows = await prisma.operationalEvent.findMany({
+    where: { source: "WORKER", level: { in: ["WARNING", "ERROR"] } },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    select: { level: true, message: true, payload: true, createdAt: true },
+  });
 
-  return values
-    .map((value) => parseJson<WorkerAlert>(value))
-    .filter((value): value is WorkerAlert => Boolean(value));
+  return rows.map((row) => {
+    const fields = alertFields.safeParse(row.payload);
+    const detail = fields.success ? fields.data : {};
+    return {
+      level: row.level === "ERROR" ? "error" : "warning",
+      message: row.message,
+      jobId: detail.jobId ?? undefined,
+      instagramAccountId: detail.instagramAccountId ?? undefined,
+      commentId: detail.commentId ?? undefined,
+      createdAt: row.createdAt.toISOString(),
+    };
+  });
 }

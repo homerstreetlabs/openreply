@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
+import { supports } from "@/lib/platforms/types";
 import { readCache, writeCache } from "@/lib/client-cache";
 import type { ConversationListItem } from "@/app/api/instagram/conversations/route";
 import type { ThreadMessage } from "@/app/api/instagram/conversations/[id]/route";
@@ -68,7 +69,13 @@ export default function InboxPage() {
       .then((r) => r.json())
       .then((payload) => {
         if (!payload.success) return;
-        const next: AccountOption[] = payload.data.instagramAccounts ?? [];
+        const all: AccountOption[] = payload.data.instagramAccounts ?? [];
+        // The inbox reads conversation history, which YouTube has no surface
+        // for at all. Omitting those accounts is the same negotiation the
+        // campaign builder uses, rather than a check on the platform's name.
+        const next = all.filter((account) =>
+          supports(account.platform, "CONVERSATION_HISTORY")
+        );
         setAccounts(next);
         setSelectedAccountId((prev) => {
           // Keep the seeded account only if it's still connected; otherwise

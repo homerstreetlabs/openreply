@@ -7,6 +7,7 @@ import TopBar from "@/components/top-bar";
 interface DashboardShellProps {
   children: React.ReactNode;
   workspaceName: string;
+  isPlatformAdmin: boolean;
   instagramUsername: string | null;
   instagramAccountCount: number;
 }
@@ -14,6 +15,7 @@ interface DashboardShellProps {
 export default function DashboardShell({
   children,
   workspaceName,
+  isPlatformAdmin,
   instagramUsername,
   instagramAccountCount,
 }: DashboardShellProps) {
@@ -27,6 +29,7 @@ export default function DashboardShell({
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         workspaceName={workspaceName}
+        isPlatformAdmin={isPlatformAdmin}
       />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">

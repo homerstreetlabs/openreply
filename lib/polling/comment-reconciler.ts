@@ -16,7 +16,7 @@
  * handled comments. Each sweep is capped so it can never flood the comment API
  * (which Instagram rate-limits aggressively, error 368).
  *
- * It runs on an interval in the worker process because Vercel's free crons only
+ * It runs on an interval in the worker process because platform crons only
  * fire once a day. Matching and sending reuse the worker's processComment, so
  * rate limiting and logging behave exactly as for webhook-delivered comments.
  *
@@ -26,13 +26,10 @@
  */
 
 import { prisma } from "@/lib/db/client";
-import { getDMQueue } from "@/lib/queue/client";
-import {
-  getRecentMediaComments,
-  getUserMedia,
-  MetaApiError,
-  type InstagramComment,
-} from "@/lib/meta/client";
+import { enqueue, COMMENT_JOB_NAME } from "@/lib/queue/client";
+import { MetaApiError } from "@/lib/meta/client";
+import { adapterFor, webhookPlatforms } from "@/lib/platforms/registry";
+import type { DiscoveredComment, Platform } from "@/lib/platforms/types";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 
@@ -62,8 +59,13 @@ function errMessage(error: unknown): string {
 
 /** One reconciliation pass across every active campaign. */
 export async function reconcileComments(): Promise<void> {
-  const automations = await prisma.automation.findMany({
-    where: { isActive: true },
+  // Every platform a webhook delivers for, because the safety net is needed
+  // wherever deliveries can be dropped. Meta unsubscribes an app after an hour
+  // of failures, so Facebook needs this as much as Instagram does. Poll-only
+  // platforms are swept by `sweepPollOnlyAccounts`, which prices each pass
+  // against its own quota.
+  const automations = await prisma.campaign.findMany({
+    where: { isActive: true, connectedAccount: { platform: { in: webhookPlatforms() } } },
     select: {
       id: true,
       name: true,
@@ -74,9 +76,10 @@ export async function reconcileComments(): Promise<void> {
       wholeWordMatch: true,
       publicReplyEnabled: true,
       workspaceId: true,
-      instagramAccount: {
+      connectedAccount: {
         select: {
           id: true,
+          platform: true,
           instagramId: true,
           username: true,
           accessToken: true,
@@ -113,8 +116,9 @@ async function sweepCampaign(
     keywords: string[];
     wholeWordMatch: boolean;
     publicReplyEnabled: boolean;
-    instagramAccount: {
+    connectedAccount: {
       id: string;
+      platform: Platform;
       instagramId: string;
       username: string;
       accessToken: string;
@@ -123,7 +127,7 @@ async function sweepCampaign(
   sinceMs: number,
   tokenCache: Map<string, string | null>
 ): Promise<SweepStat> {
-  const account = automation.instagramAccount;
+  const account = automation.connectedAccount;
   const stat: SweepStat = {
     campaign: automation.name,
     keywords: automation.matchAnyWord
@@ -150,27 +154,34 @@ async function sweepCampaign(
     return stat;
   }
 
-  // Which media this campaign covers: its own post, or the recent feed if it
-  // matches any post.
+  const adapter = adapterFor(account.platform);
+
+  // Which posts this campaign covers: its own, or the recent feed if it matches
+  // any post.
   const mediaIds: string[] = [];
   if (automation.postId) {
     mediaIds.push(automation.postId);
   } else if (automation.matchAnyPost) {
     try {
-      const media = await getUserMedia(accessToken, RECENT_MEDIA_LIMIT);
-      mediaIds.push(...media.map((m) => m.id));
+      const posts = await adapter.listPosts(
+        accessToken,
+        account.instagramId,
+        RECENT_MEDIA_LIMIT
+      );
+      mediaIds.push(...posts.map((m) => m.id));
     } catch (error) {
       stat.errors.push(`Media list: ${errMessage(error)}`);
     }
   }
   if (mediaIds.length === 0) return stat;
 
-  const queue = getDMQueue();
-
   for (const mediaId of mediaIds) {
-    let comments: InstagramComment[];
+    let comments: DiscoveredComment[];
     try {
-      comments = await getRecentMediaComments(accessToken, mediaId, sinceMs);
+      comments = await adapter.listRecentComments(accessToken, account.instagramId, {
+        postIds: [mediaId],
+        sinceMs,
+      });
     } catch (error) {
       stat.errors.push(`Comments ${mediaId}: ${errMessage(error)}`);
       continue;
@@ -178,21 +189,22 @@ async function sweepCampaign(
 
     // Keep only comments that (a) aren't the account's own, (b) match the
     // keyword, and (c) have no reply from the account owner yet.
+    //
+    // `ownerHasReplied: null` means the listing could not answer, which is not
+    // the same as nobody having replied. The ResponseRun check below is the
+    // fallback, so a platform that cannot report replies costs an extra query
+    // rather than a duplicate response.
     const needsAction = comments.filter((c) => {
-      const authorId = c.from?.id;
-      if (!authorId || authorId === account.instagramId) return false;
+      if (c.authorId === account.instagramId) return false;
 
       const matched = automation.matchAnyWord
         ? true
-        : matchKeywords(c.text ?? "", automation.keywords, automation.wholeWordMatch)
+        : matchKeywords(c.text, automation.keywords, automation.wholeWordMatch)
             .matched;
       if (!matched) return false;
       stat.matched += 1;
 
-      const ownerReplied = (c.replies?.data ?? []).some(
-        (r) => r.from?.id === account.instagramId
-      );
-      if (ownerReplied) {
+      if (c.ownerHasReplied === true) {
         stat.alreadyReplied += 1;
         return false;
       }
@@ -206,39 +218,43 @@ async function sweepCampaign(
     // enough — the reply still has to land); otherwise a SENT DM is enough. This
     // is what lets a comment whose DM sent but whose public reply failed come
     // back and retry the reply.
-    const handled = await prisma.dmLog.findMany({
+    const handled = await prisma.responseRun.findMany({
       where: {
-        automationId: automation.id,
-        commentId: { in: needsAction.map((c) => c.id) },
+        campaignId: automation.id,
+        triggerKey: { in: needsAction.map((c) => c.id) },
         ...(automation.publicReplyEnabled
           ? { publicReplySentAt: { not: null } }
           : { status: "SENT" }),
       },
-      select: { commentId: true },
+      select: { triggerKey: true },
     });
-    const handledSet = new Set(handled.map((h) => h.commentId));
+    const handledSet = new Set(handled.map((h) => h.triggerKey));
 
     // Oldest first, so whoever commented earliest gets answered first, capped.
     const fresh = needsAction
       .filter((c) => !handledSet.has(c.id))
-      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+      .sort((a, b) => (a.createdAtMs ?? 0) - (b.createdAtMs ?? 0))
       .slice(0, MAX_NEW_PER_SWEEP);
 
     for (const c of fresh) {
-      // No deterministic jobId here: a retained completed/failed job from an
-      // earlier sweep would otherwise be treated as a duplicate and silently
-      // drop this add, so the comment would never be retried. Dedup is handled
-      // above (owner-reply + DmLog guards) and the worker is idempotent
-      // (publicReplySentAt / SENT), so re-processing a comment is safe.
-      await queue.add("process-comment", {
-        instagramAccountId: account.instagramId,
-        commentId: c.id,
-        commentText: c.text ?? "",
-        commenterId: c.from!.id,
-        commenterName: c.from?.username,
-        mediaId,
-        source: "POLLING",
-      });
+      // The key is carried for tracing, not enforced: Cloudflare Queues has no
+      // dedup and delivers at least once. Dedup is the owner-reply and ResponseRun
+      // guards above plus the worker's own idempotency, which is what makes
+      // re-processing a comment safe.
+      await enqueue(
+        COMMENT_JOB_NAME,
+        {
+          platform: account.platform,
+          instagramAccountId: account.instagramId,
+          commentId: c.id,
+          commentText: c.text,
+          commenterId: c.authorId,
+          commenterName: c.authorName ?? undefined,
+          mediaId,
+          source: "POLLING",
+        },
+        `comment_${account.instagramId}_${c.id}`
+      );
       stat.enqueued += 1;
     }
   }

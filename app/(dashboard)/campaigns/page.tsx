@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import { readCache, writeCache } from "@/lib/client-cache";
 
@@ -63,6 +63,10 @@ interface Campaign {
 }
 
 export default function CampaignsPage() {
+  // Set when a platform admin arrived from the fleet view. Every request that
+  // carries it is recorded against their grant, so it is shown rather than
+  // silently applied.
+  const actingFor = useSearchParams().get("workspaceId");
   const router = useRouter();
   const [automations, setAutomations] = useState<Campaign[]>([]);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
@@ -91,6 +95,7 @@ export default function CampaignsPage() {
       if (selectedAccountId !== "all") {
         params.set("instagramAccountId", selectedAccountId);
       }
+      if (actingFor) params.set("workspaceId", actingFor);
       const res = await fetch(
         `/api/automations${params.size ? `?${params}` : ""}`,
         { cache: "no-store" }
@@ -102,7 +107,7 @@ export default function CampaignsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAccountId]);
+  }, [selectedAccountId, actingFor]);
 
   useEffect(() => {
     fetch("/api/dashboard/stats")
@@ -145,18 +150,19 @@ export default function CampaignsPage() {
 
     Promise.all(
       accountIds.map((accountId) =>
-        fetch(`/api/instagram/posts?instagramAccountId=${accountId}&limit=50`)
+        fetch(`/api/posts?accountId=${accountId}&limit=50`)
           .then((res) => res.json())
-          .then((payload) =>
-            payload.success
-              ? (payload.data as {
-                  id: string;
-                  media_type?: string;
-                  media_url?: string;
-                  thumbnail_url?: string;
-                }[])
-              : []
-          )
+          .then((payload) => {
+            if (!payload.success) return [];
+            // SAFETY: `/api/posts` returns PostSummary[] whenever `success` is
+            // true, checked on the line above. Only the three fields this grid
+            // renders are named.
+            return payload.data as {
+              id: string;
+              thumbnailUrl: string | null;
+              videoUrl: string | null;
+            }[];
+          })
           .catch(() => [])
       )
     ).then((lists) => {
@@ -165,11 +171,8 @@ export default function CampaignsPage() {
       const vids: Record<string, string> = {};
       for (const list of lists) {
         for (const media of list) {
-          const url = media.thumbnail_url ?? media.media_url;
-          if (url) thumbs[media.id] = url;
-          if (media.media_type === "VIDEO" && media.media_url) {
-            vids[media.id] = media.media_url;
-          }
+          if (media.thumbnailUrl) thumbs[media.id] = media.thumbnailUrl;
+          if (media.videoUrl) vids[media.id] = media.videoUrl;
         }
       }
       setThumbnails(thumbs);

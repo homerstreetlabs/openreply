@@ -1,3 +1,15 @@
+/**
+ * Retained alias for the Instagram OAuth callback.
+ *
+ * Connecting now starts at `/api/connect/<platform>` and returns to
+ * `/api/connect/<platform>/callback`. This URL survives because it is
+ * registered in the Meta app dashboard, which is a setting a human edits: every
+ * existing install would break the moment this file went away, and it would
+ * break at the redirect, after the creator had already granted consent.
+ *
+ * Retire it only once the dashboard lists the new URL and this one has seen no
+ * traffic for a full connect cycle.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
@@ -83,7 +95,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    await prisma.instagramAccount.upsert({
+    await prisma.connectedAccount.upsert({
       where: { instagramId },
       create: {
         workspaceId: state.workspaceId,

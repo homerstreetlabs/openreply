@@ -16,6 +16,12 @@ const navItems = [
   { label: "Campaigns", href: "/campaigns" },
   { label: "DM Logs", href: "/logs" },
   { label: "Settings", href: "/settings" },
+];
+
+/** Cross-creator surfaces. Hidden entirely without a platform grant. */
+const adminNavItems = [
+  { label: "Fleet", href: "/fleet" },
+  { label: "Creators", href: "/creators" },
   { label: "Diagnostics", href: "/diagnostics" },
 ];
 
@@ -23,14 +29,17 @@ interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   workspaceName: string;
+  isPlatformAdmin: boolean;
 }
 
 export default function Sidebar({
   isOpen,
   onClose,
   workspaceName,
+  isPlatformAdmin,
 }: SidebarProps) {
   const pathname = usePathname();
+  const items = isPlatformAdmin ? [...navItems, ...adminNavItems] : navItems;
 
   return (
     <>
@@ -62,7 +71,7 @@ export default function Sidebar({
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
+          {items.map((item) => {
             const isActive =
               pathname === item.href || pathname.startsWith(item.href + "/");
             return (

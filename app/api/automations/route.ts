@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getCurrentWorkspaceId } from "@/lib/auth";
+import { actingWorkspace, PlatformAccessError } from "@/lib/tenancy/acting-workspace";
+import { compile } from "@/lib/campaigns/compile";
+import { draftFromColumns } from "@/lib/campaigns/from-columns";
+import { platformCeiling } from "@/lib/campaigns/steps";
 import { prisma } from "@/lib/db/client";
 import { calculateCtr, normalizeTopKeywords } from "@/lib/tracking/analytics";
 import { buildTrackedUrl } from "@/lib/tracking/message";
@@ -122,28 +125,40 @@ const updateAutomationSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const workspaceId = await getCurrentWorkspaceId();
-  if (!workspaceId) {
+  let acting;
+  try {
+    acting = await actingWorkspace(
+      request.nextUrl.searchParams.get("workspaceId"),
+      "read campaigns"
+    );
+  } catch (error) {
+    if (error instanceof PlatformAccessError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 403 });
+    }
+    throw error;
+  }
+  if (!acting) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
       { status: 401 }
     );
   }
+  const workspaceId = acting.workspaceId;
   const instagramAccountId =
     request.nextUrl.searchParams.get("instagramAccountId");
-  const accountFilter =
+  const accountFilter: { connectedAccountId?: string } =
     instagramAccountId && instagramAccountId !== "all"
-      ? { instagramAccountId }
+      ? { connectedAccountId: instagramAccountId }
       : {};
 
-  const automations = await prisma.automation.findMany({
+  const automations = await prisma.campaign.findMany({
     where: { workspaceId, ...accountFilter },
     include: {
-      instagramAccount: {
+      connectedAccount: {
         select: { username: true, instagramId: true },
       },
       _count: {
-        select: { dmLogs: true },
+        select: { responseRuns: true },
       },
       trackedLinks: {
         select: {
@@ -163,7 +178,7 @@ export async function GET(request: NextRequest) {
     automations.map(async (automation) => {
       if (automation.reportShareSlug) return automation;
 
-      const updated = await prisma.automation.update({
+      const updated = await prisma.campaign.update({
         where: { id: automation.id },
         data: { reportShareSlug: generateReportShareSlug() },
         select: { reportShareSlug: true },
@@ -177,18 +192,18 @@ export async function GET(request: NextRequest) {
   );
 
   const [statusCounts, clickCounts, keywordCounts] = await Promise.all([
-    prisma.dmLog.groupBy({
-      by: ["automationId", "status"],
+    prisma.responseRun.groupBy({
+      by: ["campaignId", "status"],
       where: { workspaceId },
       _count: { _all: true },
     }),
     prisma.linkClick.groupBy({
-      by: ["automationId"],
+      by: ["campaignId"],
       where: { workspaceId },
       _count: { _all: true },
     }),
-    prisma.dmLog.groupBy({
-      by: ["automationId", "matchedKeyword"],
+    prisma.responseRun.groupBy({
+      by: ["campaignId", "matchedKeyword"],
       where: { workspaceId, matchedKeyword: { not: null } },
       _count: { _all: true },
     }),
@@ -216,7 +231,7 @@ export async function GET(request: NextRequest) {
   }
 
   for (const row of statusCounts) {
-    const item = analytics.get(row.automationId);
+    const item = analytics.get(row.campaignId);
     if (!item) continue;
     const count = row._count._all;
     if (row.status === "SENT") item.sent += count;
@@ -225,7 +240,7 @@ export async function GET(request: NextRequest) {
   }
 
   for (const row of clickCounts) {
-    const item = analytics.get(row.automationId);
+    const item = analytics.get(row.campaignId);
     if (item) item.clicks = row._count._all;
   }
 
@@ -234,7 +249,7 @@ export async function GET(request: NextRequest) {
     if (!item) continue;
     item.topKeywords = normalizeTopKeywords(
       keywordCounts
-        .filter((row) => row.automationId === automation.id)
+        .filter((row) => row.campaignId === automation.id)
         .map((row) => ({
           matchedKeyword: row.matchedKeyword,
           _count: row._count._all,
@@ -284,14 +299,37 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!canManageWorkspace(context.role)) {
+  // A platform admin may write in a creator's workspace, and the grant is what
+  // authorises it rather than a workspace role they do not hold. Membership
+  // still governs everyone else, so a member without the role is refused here
+  // exactly as before.
+  let acting;
+  try {
+    acting = await actingWorkspace(
+      request.nextUrl.searchParams.get("workspaceId"),
+      "create campaign"
+    );
+  } catch (error) {
+    if (error instanceof PlatformAccessError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 403 });
+    }
+    throw error;
+  }
+  if (!acting) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
+  if (acting.kind === "own" && !canManageWorkspace(context.role)) {
     return NextResponse.json(
       { success: false, error: "Only owners and admins can create campaigns" },
       { status: 403 }
     );
   }
 
-  const workspaceId = context.workspaceId;
+  const workspaceId = acting.workspaceId;
 
   const body = await request.json();
   const parsed = createAutomationSchema.safeParse(body);
@@ -318,10 +356,10 @@ export async function POST(request: NextRequest) {
       select: { id: true },
     }),
     requestedInstagramAccountId
-      ? prisma.instagramAccount.findFirst({
+      ? prisma.connectedAccount.findFirst({
           where: { id: requestedInstagramAccountId, workspaceId },
         })
-      : prisma.instagramAccount.findFirst({
+      : prisma.connectedAccount.findFirst({
           where: { workspaceId },
           orderBy: { connectedAt: "desc" },
         }),
@@ -383,8 +421,52 @@ export async function POST(request: NextRequest) {
     .map((m) => m.trim())
     .filter(Boolean);
 
-  const automation = await prisma.automation.create({
+  // Compile the plan before the write, so a campaign the account cannot run is
+  // refused at save rather than discovered at send. The columns stay the source
+  // of truth for the form; the plan is what the engine executes.
+  const columns = {
+    dmMessage: parsed.data.dmMessage,
+    openingDmEnabled,
+    openingDmMessage: openingDmEnabled ? parsed.data.openingDmMessage || null : null,
+    openingDmButtonLabel: openingDmEnabled ? parsed.data.openingDmButtonLabel || null : null,
+    linkButtonLabel: parsed.data.linkButtonLabel || null,
+    requireFollow: parsed.data.requireFollow,
+    followPromptMessage: parsed.data.requireFollow
+      ? parsed.data.followPromptMessage || null
+      : null,
+    followPromptButtonLabel: parsed.data.requireFollow
+      ? parsed.data.followPromptButtonLabel || null
+      : null,
+    followUpEnabled: parsed.data.followUpEnabled,
+    followUpMessage: parsed.data.followUpEnabled ? parsed.data.followUpMessage || null : null,
+    followUpDelayMinutes: parsed.data.followUpEnabled ? parsed.data.followUpDelayMinutes : 0,
+    publicReplyEnabled: parsed.data.publicReplyEnabled,
+    publicReplyMessage: parsed.data.publicReplyEnabled
+      ? publicReplyList[0] ?? parsed.data.publicReplyMessage ?? null
+      : null,
+    publicReplyMessages: parsed.data.publicReplyEnabled ? publicReplyList : [],
+  };
+
+  const plan = draftFromColumns(columns, linkCreates.map((l) => l.slug));
+  const compiled = compile(
+    instagramAccount.platform,
+    platformCeiling(instagramAccount.platform),
+    plan
+  );
+  if (!compiled.ok) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: compiled.errors[0]?.message ?? "This campaign cannot run on this account",
+        details: compiled.errors,
+      },
+      { status: 422 }
+    );
+  }
+
+  const automation = await prisma.campaign.create({
     data: {
+      compiledPlan: plan,
       name: parsed.data.name,
       goal: parsed.data.goal,
       // A next-reel campaign has no post yet; the cron binds it once a reel is posted.
@@ -428,7 +510,7 @@ export async function POST(request: NextRequest) {
       isActive: parsed.data.isActive,
       wholeWordMatch: parsed.data.wholeWordMatch,
       workspaceId,
-      instagramAccountId: instagramAccount.id,
+      connectedAccountId: instagramAccount.id,
       reportShareSlug: generateReportShareSlug(),
       ...(linkCreates.length > 0
         ? { trackedLinks: { create: linkCreates } }
@@ -463,8 +545,8 @@ export async function PATCH(request: NextRequest) {
 
   const workspaceId = context.workspaceId;
 
-  const automationId = request.nextUrl.searchParams.get("id");
-  if (!automationId) {
+  const campaignId = request.nextUrl.searchParams.get("id");
+  if (!campaignId) {
     return NextResponse.json(
       { success: false, error: "Missing campaign ID" },
       { status: 400 }
@@ -485,8 +567,8 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  const existing = await prisma.automation.findFirst({
-    where: { id: automationId, workspaceId },
+  const existing = await prisma.campaign.findFirst({
+    where: { id: campaignId, workspaceId },
   });
 
   if (!existing) {
@@ -536,8 +618,8 @@ export async function PATCH(request: NextRequest) {
     automationData.publicReplyMessage = null;
   }
 
-  const updated = await prisma.automation.update({
-    where: { id: automationId },
+  const updated = await prisma.campaign.update({
+    where: { id: campaignId },
     data: automationData,
   });
 
@@ -545,7 +627,7 @@ export async function PATCH(request: NextRequest) {
   // destination URL was supplied. `undefined` means "leave it alone".
   if (trackedDestinationUrl !== undefined && trackedDestinationUrl !== null) {
     const primaryLink = await prisma.trackedLink.findFirst({
-      where: { automationId },
+      where: { campaignId },
       orderBy: { createdAt: "asc" },
     });
 
@@ -562,7 +644,7 @@ export async function PATCH(request: NextRequest) {
       await prisma.trackedLink.create({
         data: {
           workspaceId,
-          automationId,
+          campaignId,
           slug: generateTrackedLinkSlug(),
           label: "Primary campaign link",
           destinationUrl: trackedDestinationUrl,
@@ -576,7 +658,7 @@ export async function PATCH(request: NextRequest) {
   // second button's title.
   if (secondaryDestinationUrl !== undefined && secondaryDestinationUrl !== null) {
     const links = await prisma.trackedLink.findMany({
-      where: { automationId },
+      where: { campaignId },
       orderBy: { createdAt: "asc" },
     });
     const secondaryLink = links[1];
@@ -595,7 +677,7 @@ export async function PATCH(request: NextRequest) {
       await prisma.trackedLink.create({
         data: {
           workspaceId,
-          automationId,
+          campaignId,
           slug: generateTrackedLinkSlug(),
           label: secondaryLabel,
           destinationUrl: secondaryDestinationUrl,
@@ -604,7 +686,56 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
+  // Recompile after the links settle, because the plan names their slugs. Read
+  // back rather than merging the patch by hand: a partial update means the
+  // stored columns are the only complete picture of what the campaign now is.
+  await recompilePlan(campaignId);
+
   return NextResponse.json({ success: true, data: updated });
+}
+
+/**
+ * Bring a campaign's stored plan back in step with its columns.
+ *
+ * A campaign whose columns no longer compile keeps its old plan and is
+ * deactivated instead. Storing a plan that cannot run would turn a save into a
+ * silent break discovered at the next comment.
+ */
+async function recompilePlan(campaignId: string): Promise<void> {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    select: {
+      dmMessage: true,
+      openingDmEnabled: true,
+      openingDmMessage: true,
+      openingDmButtonLabel: true,
+      linkButtonLabel: true,
+      requireFollow: true,
+      followPromptMessage: true,
+      followPromptButtonLabel: true,
+      followUpEnabled: true,
+      followUpMessage: true,
+      followUpDelayMinutes: true,
+      publicReplyEnabled: true,
+      publicReplyMessage: true,
+      publicReplyMessages: true,
+      connectedAccount: { select: { platform: true } },
+      trackedLinks: { select: { slug: true }, orderBy: { createdAt: "asc" } },
+    },
+  });
+  if (!campaign) return;
+
+  const platform = campaign.connectedAccount.platform;
+  const plan = draftFromColumns(
+    campaign,
+    campaign.trackedLinks.map((l) => l.slug)
+  );
+  const compiled = compile(platform, platformCeiling(platform), plan);
+
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: compiled.ok ? { compiledPlan: plan } : { isActive: false },
+  });
 }
 
 export async function DELETE(request: NextRequest) {
@@ -625,16 +756,16 @@ export async function DELETE(request: NextRequest) {
 
   const workspaceId = context.workspaceId;
 
-  const automationId = request.nextUrl.searchParams.get("id");
-  if (!automationId) {
+  const campaignId = request.nextUrl.searchParams.get("id");
+  if (!campaignId) {
     return NextResponse.json(
       { success: false, error: "Missing campaign ID" },
       { status: 400 }
     );
   }
 
-  const existing = await prisma.automation.findFirst({
-    where: { id: automationId, workspaceId },
+  const existing = await prisma.campaign.findFirst({
+    where: { id: campaignId, workspaceId },
   });
 
   if (!existing) {
@@ -644,7 +775,7 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
-  await prisma.automation.delete({ where: { id: automationId } });
+  await prisma.campaign.delete({ where: { id: campaignId } });
 
   return NextResponse.json({ success: true, data: { deleted: true } });
 }

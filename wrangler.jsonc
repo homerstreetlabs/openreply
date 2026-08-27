@@ -1,0 +1,84 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openreply-web",
+  "main": ".open-next/worker.js",
+  // nodejs_compat is on by default from 2026-08-04, but pin it: node:crypto is
+  // load-bearing here (AES-256-GCM token encryption, HMAC webhook signatures)
+  // and a silent loss of it would surface as failed sends, not a build error.
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+  "observability": {
+    "enabled": true,
+    // Cloudflare Notifications has no Workers alert type at all, so logs are
+    // the only signal until an external alerting path exists. Sample nothing.
+    "logs": {
+      "head_sampling_rate": 1,
+    },
+  },
+  // Postgres stays. D1 is SQLite and its Prisma adapter silently drops ACID by
+  // its own source, while this schema needs String[], enums and @db.Date.
+  //
+  // Create the config with --caching-disabled. Hyperdrive caches reads for 60s
+  // by default and does not invalidate on write, and Auth.js keeps sessions in
+  // the database, so a cached read means a logged-out session still resolving.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "4733c5642f1845f9b61c71a014780cc9",
+      "localConnectionString": "postgresql://postgres:postgres@localhost:5432/openreply",
+    },
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "RESPONSE_QUEUE",
+        "queue": "openreply-responses",
+      },
+      {
+        "binding": "RESPONSE_DLQ",
+        "queue": "openreply-responses-dlq",
+      },
+    ],
+  },
+  // Defined in the engine Worker. Binding across scripts is what lets this
+  // Worker stay free of Durable Object exports, which is what keeps Preview
+  // URLs working.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "AccountRateLimiter",
+        "script_name": "openreply-engine",
+      },
+      {
+        "name": "QUOTA",
+        "class_name": "QuotaBucket",
+        "script_name": "openreply-engine",
+      },
+    ],
+  },
+  // Cloudflare Email Sending. A Worker cannot reach the SMTP relay at
+  // smtp.mx.cloudflare.net, because Cloudflare IPs are on the socket layer's
+  // disallowed list alongside localhost and private addresses. The bridge is
+  // for clients that are not Workers; from inside one this is the path.
+  "send_email": [{ "name": "EMAIL" }],
+
+  "vars": {
+    "META_GRAPH_API_VERSION": "v25.0",
+  },
+  // Secrets are set with `wrangler secret put`, never here:
+  //   NEXTAUTH_SECRET  ENCRYPTION_KEY  DATABASE_URL  CRON_SECRET
+  //   INSTAGRAM_APP_ID  INSTAGRAM_APP_SECRET
+  //   FACEBOOK_APP_ID  FACEBOOK_APP_SECRET
+  //   WEBHOOK_VERIFY_TOKEN  EMAIL_SERVER  EMAIL_FROM  NEXTAUTH_URL
+  //   TIKTOK_WEBHOOK_SECRET  TIKTOK_CLIENT_KEY  TIKTOK_CLIENT_SECRET
+  //   YOUTUBE_CLIENT_ID  YOUTUBE_CLIENT_SECRET  (once those apps exist)
+  //
+  // Anything also needed at build time (DATABASE_URL for `prisma generate`)
+  // must be set twice: once as a build variable, once as a Worker secret.
+  // Build variables and runtime secrets are separate stores.
+}

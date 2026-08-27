@@ -7,7 +7,7 @@ export async function canConnectInstagramAccount({
   workspaceId: string;
   instagramId: string;
 }) {
-  const existingAccount = await prisma.instagramAccount.findUnique({
+  const existingAccount = await prisma.connectedAccount.findUnique({
     where: { instagramId },
     select: { workspaceId: true },
   });
@@ -30,12 +30,12 @@ export async function getWorkspaceInstagramAccount(
   instagramAccountId?: string | null
 ) {
   if (instagramAccountId && instagramAccountId !== "all") {
-    return prisma.instagramAccount.findFirst({
+    return prisma.connectedAccount.findFirst({
       where: { id: instagramAccountId, workspaceId },
     });
   }
 
-  return prisma.instagramAccount.findFirst({
+  return prisma.connectedAccount.findFirst({
     where: { workspaceId },
     orderBy: { connectedAt: "desc" },
   });

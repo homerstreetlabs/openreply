@@ -1,0 +1,28 @@
+{
+  "name": "eslint-plugin-anti-slop",
+  "version": "0.1.0",
+  "description": "Opinionated ESLint rules that reject low-evidence and low-signal TypeScript and JavaScript patterns.",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./effect": "./src/effect/index.js"
+  },
+  "files": [
+    "index.js",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "peerDependencies": {
+    "eslint": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0"
+  },
+  "keywords": ["eslint", "eslintplugin", "typescript", "anti-slop"],
+  "license": "MIT"
+}

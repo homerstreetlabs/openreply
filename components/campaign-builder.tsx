@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
+import { campaignOptions, platformName } from "@/lib/campaigns/options";
 import PostPicker from "@/components/post-picker";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
 import { readCache, writeCache } from "@/lib/client-cache";
@@ -108,14 +109,17 @@ function Radio({
 function Toggle({
   on,
   onToggle,
+  disabled = false,
 }: {
   on: boolean;
   onToggle: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onToggle}
+      disabled={disabled}
       className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
         on ? "bg-accent" : "bg-zinc-300"
       }`}
@@ -182,6 +186,20 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [followUpDelayMinutes, setFollowUpDelayMinutes] = useState(0);
 
   const [previewTab, setPreviewTab] = useState<PreviewTab>("dm");
+
+  /**
+   * What the chosen account can actually do.
+   *
+   * YouTube and TikTok have no messaging API at all, so a DM section shown for
+   * them is a promise the send path cannot keep. This reads the same capability
+   * table the worker branches on, so the form and the runtime cannot disagree.
+   */
+  const platform = accounts.find((a) => a.id === selectedAccountId)?.platform ?? "INSTAGRAM";
+  const options = campaignOptions(platform);
+  const canSendDm = options.dm;
+  const canPublicReply = options.publicReply;
+  // Derived, not stored, so a platform switch cannot leave a stale toggle behind.
+  const publicReplyOn = publicReplyEnabled || options.publicReplyRequired;
 
   // CSV import queue. When present, each save advances to the next row instead
   // of returning to the campaigns list.
@@ -386,14 +404,20 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   async function handleSubmit(activeValue: boolean) {
     setError(null);
 
-    if (!selectedAccountId) return setError("Connect an Instagram account first.");
+    if (!selectedAccountId) return setError("Connect an account first.");
     if (triggerScope === "specific" && !postId)
       return setError("Pick a post or reel to trigger the campaign.");
     if (matchMode === "specific" && keywords.length === 0)
       return setError("Add at least one keyword, or switch to any word.");
-    if (!dmMessage.trim()) return setError("Add the DM with the link.");
-    if (openingDmEnabled && (!openingDmMessage.trim() || !openingDmButtonLabel.trim()))
+    if (canSendDm && !dmMessage.trim()) return setError("Add the DM with the link.");
+    if (canSendDm && openingDmEnabled && (!openingDmMessage.trim() || !openingDmButtonLabel.trim()))
       return setError("Your opening DM needs a message and a button label.");
+    if (publicReplyOn && publicReplyMessages.every((m) => !m.trim()))
+      return setError(
+        canSendDm
+          ? "Add at least one public reply."
+          : `${platformName(platform)} has no messaging API, so this campaign needs a public reply.`
+      );
 
     setSaving(true);
 
@@ -411,8 +435,8 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       openingDmEnabled,
       openingDmMessage: openingDmEnabled ? openingDmMessage : null,
       openingDmButtonLabel: openingDmEnabled ? openingDmButtonLabel : null,
-      publicReplyEnabled,
-      publicReplyMessages: publicReplyEnabled
+      publicReplyEnabled: publicReplyOn,
+      publicReplyMessages: publicReplyOn
         ? publicReplyMessages.map((m) => m.trim()).filter(Boolean)
         : [],
       trackedDestinationUrl: trackedDestinationUrl.trim() || "",
@@ -722,33 +746,46 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
           >
             any word
           </Radio>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
-            <span className="text-sm text-foreground">
-              also reply when someone DMs{" "}
-              {matchMode === "any" ? "anything" : "these words"}
-            </span>
-            <Toggle
-              on={dmTriggerEnabled}
-              onToggle={() => setDmTriggerEnabled(!dmTriggerEnabled)}
-            />
-          </div>
-          {dmTriggerEnabled && (
+          {options.dmTrigger && (
+            <>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
+                <span className="text-sm text-foreground">
+                  also reply when someone DMs{" "}
+                  {matchMode === "any" ? "anything" : "these words"}
+                </span>
+                <Toggle
+                  on={dmTriggerEnabled}
+                  onToggle={() => setDmTriggerEnabled(!dmTriggerEnabled)}
+                />
+              </div>
+              {dmTriggerEnabled && (
+                <p className="text-xs text-muted">
+                  {matchMode === "any"
+                    ? "Every DM to this account gets the reply below — use with care."
+                    : "A DM containing any of these words gets the same reply, no comment needed."}
+                </p>
+              )}
+            </>
+          )}
+          {canPublicReply && (
+            <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5">
+              <span className="text-sm text-foreground">
+                reply to their comments under the post
+              </span>
+              <Toggle
+                on={publicReplyOn}
+                onToggle={() => setPublicReplyEnabled(!publicReplyEnabled)}
+                disabled={!canSendDm}
+              />
+            </div>
+          )}
+          {!canSendDm && (
             <p className="text-xs text-muted">
-              {matchMode === "any"
-                ? "Every DM to this account gets the reply below — use with care."
-                : "A DM containing any of these words gets the same reply, no comment needed."}
+              {platformName(platform)} has no messaging API, so a public reply under the
+              comment is the only thing this campaign can send.
             </p>
           )}
-          <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5">
-            <span className="text-sm text-foreground">
-              reply to their comments under the post
-            </span>
-            <Toggle
-              on={publicReplyEnabled}
-              onToggle={() => setPublicReplyEnabled(!publicReplyEnabled)}
-            />
-          </div>
-          {publicReplyEnabled && (
+          {publicReplyOn && (
             <div className="space-y-2">
               {publicReplyMessages.map((msg, i) => (
                 <div key={i} className="flex items-center gap-2">
@@ -798,6 +835,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
           )}
         </Section>
 
+        {canSendDm && (
         <Section title="They will get">
           <div className="rounded-lg border border-border p-3">
             <div className="flex items-center justify-between">
@@ -842,7 +880,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                 <textarea
                   value={followPromptMessage}
                   onChange={(e) => setFollowPromptMessage(e.target.value)}
-                  placeholder="quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over"
+                  placeholder="one quick thing before i send your link. tap the button once you're following and it's yours."
                   rows={3}
                   className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
                   maxLength={1000}
@@ -863,7 +901,9 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
             )}
           </div>
         </Section>
+        )}
 
+        {canSendDm && (
         <Section title="And then, they will get">
           <div className="rounded-lg border border-border p-3 space-y-2">
             <span className="text-sm text-foreground">a DM with a link</span>
@@ -979,6 +1019,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
             )}
           </div>
         </Section>
+        )}
       </div>
 
       {/* Right: preview */}

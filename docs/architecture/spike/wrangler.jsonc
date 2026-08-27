@@ -1,0 +1,17 @@
+{
+  "name": "spike-cf",
+  "main": "src/index.ts",
+  // >= 2026-08-04 turns on nodejs_compat by default per the research; pin it
+  // explicitly anyway so the spike proves the flag combination we will ship.
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "hyperdrive": [
+    { "binding": "HYPERDRIVE", "id": "spike-local-placeholder" }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "RATE_LIMITER", "class_name": "RateLimiter" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] }
+  ]
+}

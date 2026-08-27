@@ -62,8 +62,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const existing = await prisma.automation.findMany({
-    where: { instagramAccountId: account.id },
+  const existing = await prisma.campaign.findMany({
+    where: { connectedAccountId: account.id },
     select: { postId: true },
   });
   const usedPostIds = new Set(existing.map((a) => a.postId));
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       `Imported: ${campaign.keywords[0]}`;
     const publicReply = (campaign.publicReplyMessage ?? "").trim();
 
-    await prisma.automation.create({
+    await prisma.campaign.create({
       data: {
         name,
         goal: (campaign.goal ?? "").trim().slice(0, 120) || null,
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
         isActive: campaign.isActive,
         wholeWordMatch: campaign.wholeWordMatch,
         workspaceId: context.workspaceId,
-        instagramAccountId: account.id,
+        connectedAccountId: account.id,
         reportShareSlug: generateReportShareSlug(),
         ...(validTrackedUrl
           ? {

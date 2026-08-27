@@ -26,7 +26,7 @@ function getDayWindow(daysAgo: number) {
 }
 
 export async function getCampaignReportBySlug(shareSlug: string) {
-  const automation = await prisma.automation.findFirst({
+  const automation = await prisma.campaign.findFirst({
     where: {
       reportShareSlug: shareSlug,
       reportShareEnabled: true,
@@ -47,7 +47,7 @@ export async function getCampaignReportBySlug(shareSlug: string) {
           name: true,
         },
       },
-      instagramAccount: {
+      connectedAccount: {
         select: {
           username: true,
         },
@@ -70,33 +70,33 @@ export async function getCampaignReportBySlug(shareSlug: string) {
 
   const [statusRows, clickCount, keywordRows, latestSentLog] =
     await Promise.all([
-      prisma.dmLog.groupBy({
+      prisma.responseRun.groupBy({
         by: ["status"],
         where: {
           workspaceId: automation.workspaceId,
-          automationId: automation.id,
+          campaignId: automation.id,
         },
         _count: { _all: true },
       }),
       prisma.linkClick.count({
         where: {
           workspaceId: automation.workspaceId,
-          automationId: automation.id,
+          campaignId: automation.id,
         },
       }),
-      prisma.dmLog.groupBy({
+      prisma.responseRun.groupBy({
         by: ["matchedKeyword"],
         where: {
           workspaceId: automation.workspaceId,
-          automationId: automation.id,
+          campaignId: automation.id,
           matchedKeyword: { not: null },
         },
         _count: { _all: true },
       }),
-      prisma.dmLog.findFirst({
+      prisma.responseRun.findFirst({
         where: {
           workspaceId: automation.workspaceId,
-          automationId: automation.id,
+          campaignId: automation.id,
           status: "SENT",
         },
         orderBy: { dmSentAt: "desc" },
@@ -121,10 +121,10 @@ export async function getCampaignReportBySlug(shareSlug: string) {
       const daysAgo = 6 - index;
       const { start, end } = getDayWindow(daysAgo);
       const [sent, clicks] = await Promise.all([
-        prisma.dmLog.count({
+        prisma.responseRun.count({
           where: {
             workspaceId: automation.workspaceId,
-            automationId: automation.id,
+            campaignId: automation.id,
             status: "SENT",
             createdAt: { gte: start, lt: end },
           },
@@ -132,7 +132,7 @@ export async function getCampaignReportBySlug(shareSlug: string) {
         prisma.linkClick.count({
           where: {
             workspaceId: automation.workspaceId,
-            automationId: automation.id,
+            campaignId: automation.id,
             createdAt: { gte: start, lt: end },
           },
         }),
@@ -165,7 +165,7 @@ export async function getCampaignReportBySlug(shareSlug: string) {
       isActive: automation.isActive,
       createdAt: automation.createdAt,
       updatedAt: automation.updatedAt,
-      instagramUsername: automation.instagramAccount.username,
+      instagramUsername: automation.connectedAccount.username,
     },
     metrics: {
       sent: statusSummary.sent,

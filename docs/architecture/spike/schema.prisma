@@ -1,0 +1,40 @@
+// Minimal spike schema — a subset of the real tables, so queries hit real
+// indexes and real row shapes rather than a toy table.
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated"
+  runtime  = "cloudflare"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Workspace {
+  id                String   @id
+  name              String
+  ownerId           String
+  createdAt         DateTime
+  updatedAt         DateTime
+  usagePeriodStart  DateTime
+  dmsSentThisPeriod Int
+
+  instagramAccounts InstagramAccount[]
+}
+
+model InstagramAccount {
+  id             String    @id
+  workspaceId    String
+  instagramId    String    @unique
+  username       String
+  name           String?
+  accessToken    String
+  tokenExpiresAt DateTime?
+  webhookSubscribed Boolean
+  connectedAt    DateTime
+  updatedAt      DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId])
+}

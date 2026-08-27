@@ -29,7 +29,6 @@ What happened instead?
 - OS:
 - Node version:
 - Database:
-- Redis:
 - Browser:
 
 ## Logs Or Screenshots

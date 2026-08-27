@@ -1,0 +1,82 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openreply-engine",
+  "main": "workers/engine/index.ts",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Separate from the web Worker for two reasons that are not stylistic. A
+  // Worker exporting Durable Objects gets no Preview URLs, and Prisma's WASM
+  // query compiler is ~1.8 MB before any application code, against a 10 MB
+  // gzip ceiling the web Worker already shares with all of Next.js.
+
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+  },
+
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "4733c5642f1845f9b61c71a014780cc9",
+      "localConnectionString": "postgresql://postgres:postgres@localhost:5432/openreply",
+    },
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "RATE_LIMITER", "class_name": "AccountRateLimiter" },
+      { "name": "QUOTA", "class_name": "QuotaBucket" },
+    ],
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AccountRateLimiter"] },
+    { "tag": "v2", "new_sqlite_classes": ["QuotaBucket"] },
+  ],
+
+  "queues": {
+    "producers": [
+      { "binding": "RESPONSE_QUEUE", "queue": "openreply-responses" },
+      { "binding": "RESPONSE_DLQ", "queue": "openreply-responses-dlq" },
+    ],
+    "consumers": [
+      {
+        "queue": "openreply-responses",
+        // BullMQ ran concurrency 5 against one process. Queues autoscales, so
+        // this is the ceiling rather than the fixed width.
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        // The send path retries on its own schedule (300/900/2700s) and hands
+        // back to Queues between attempts, so this only needs to outlast that
+        // ladder before giving up to the dead-letter queue.
+        "max_retries": 3,
+        "dead_letter_queue": "openreply-responses-dlq",
+      },
+    ],
+  },
+
+  // Cron triggers are best-effort: no SLA, no retry policy, and Cloudflare
+  // states scheduled Workers "run on underutilized machines". The handler is a
+  // thin producer for exactly that reason, so a missed tick self-heals on the
+  // next one instead of losing the work it would have done inline.
+  "triggers": {
+    "crons": [
+      "*/5 * * * *",
+      "*/15 * * * *",
+      "0 5 * * *",
+      "0 6 * * *",
+      "0 7 * * *",
+      "0 8 * * *",
+    ],
+  },
+
+  // Cloudflare Email Sending. A Worker cannot reach the SMTP relay at
+  // smtp.mx.cloudflare.net, because Cloudflare IPs are on the socket layer's
+  // disallowed list alongside localhost and private addresses. The bridge is
+  // for clients that are not Workers; from inside one this is the path.
+  "send_email": [{ "name": "EMAIL" }],
+
+  "vars": {
+    "META_GRAPH_API_VERSION": "v25.0",
+  },
+}

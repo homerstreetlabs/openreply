@@ -13,11 +13,11 @@ export async function GET(request: NextRequest, { params }: RedirectRouteProps) 
     select: {
       id: true,
       workspaceId: true,
-      automationId: true,
+      campaignId: true,
       destinationUrl: true,
-      automation: {
+      campaign: {
         select: {
-          instagramAccountId: true,
+          connectedAccountId: true,
         },
       },
     },
@@ -30,8 +30,8 @@ export async function GET(request: NextRequest, { params }: RedirectRouteProps) 
   await prisma.linkClick.create({
     data: {
       workspaceId: trackedLink.workspaceId,
-      automationId: trackedLink.automationId,
-      instagramAccountId: trackedLink.automation.instagramAccountId,
+      campaignId: trackedLink.campaignId,
+      connectedAccountId: trackedLink.campaign.connectedAccountId,
       trackedLinkId: trackedLink.id,
       ipHash: hashClickIp(getRequestIp(request)),
       userAgent: request.headers.get("user-agent"),

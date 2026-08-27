@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getDMQueue, getRedisConnection } from "@/lib/queue/client";
+import { queueHealth } from "@/lib/queue/client";
 import { getWorkerHealth } from "@/lib/ops/worker-health";
 
 export const runtime = "nodejs";
@@ -27,27 +27,26 @@ async function checkDatabase(): Promise<HealthCheck> {
   }
 }
 
-async function checkRedis(): Promise<HealthCheck> {
-  try {
-    const pong = await getRedisConnection().ping();
-    return { status: pong === "PONG" ? "ok" : "error", detail: pong };
-  } catch (error) {
-    return {
-      status: "error",
-      detail: error instanceof Error ? error.message : "Redis check failed",
-    };
-  }
+interface QueueCounts {
+  backlog: number;
+  deadLettered: number | null;
+  oldestMessageAgeMs: number | null;
 }
 
-async function checkQueue(): Promise<HealthCheck & { counts?: unknown }> {
+async function checkQueue(): Promise<HealthCheck & { counts?: QueueCounts }> {
   try {
-    const counts = await getDMQueue().getJobCounts(
-      "waiting",
-      "active",
-      "delayed",
-      "failed"
-    );
-    return { status: "ok", counts };
+    const health = await queueHealth();
+    if (!health) {
+      return { status: "error", detail: "Queue binding unavailable" };
+    }
+    return {
+      status: "ok",
+      counts: {
+        backlog: health.backlog,
+        deadLettered: health.deadLettered,
+        oldestMessageAgeMs: health.oldestMessageAgeMs,
+      },
+    };
   } catch (error) {
     return {
       status: "error",
@@ -57,32 +56,28 @@ async function checkQueue(): Promise<HealthCheck & { counts?: unknown }> {
 }
 
 export async function GET() {
-  const [database, redis, queue, worker] = await Promise.all([
+  const [database, queue, worker] = await Promise.all([
     checkDatabase(),
-    checkRedis(),
     checkQueue(),
     getWorkerHealth().catch((error) => ({
       healthy: false,
-      heartbeat: null,
-      ageMs: null,
-      error: error instanceof Error ? error.message : "Worker check failed",
+      backlog: null,
+      oldestMessageAgeMs: null,
+      deadLettered: null,
+      detail: error instanceof Error ? error.message : "Engine check failed",
     })),
   ]);
 
   const healthy =
-    database.status === "ok" &&
-    redis.status === "ok" &&
-    queue.status === "ok" &&
-    worker.healthy;
+    database.status === "ok" && queue.status === "ok" && worker.healthy;
 
   return NextResponse.json(
     {
       status: healthy ? "ok" : "degraded",
       checks: {
         database,
-        redis,
         queue,
-        worker,
+        engine: worker,
       },
     },
     { status: healthy ? 200 : 503 }

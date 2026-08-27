@@ -74,12 +74,19 @@ export function verifyOAuthState(state: string | null): OAuthStatePayload | null
   }
 }
 
+/** Requested at authorization, and the set `negotiate` checks a grant against. */
+export const INSTAGRAM_SCOPES = [
+  "instagram_business_basic",
+  "instagram_business_manage_messages",
+  "instagram_business_manage_comments",
+  "instagram_business_manage_insights",
+] as const;
+
 export function getAuthorizationUrl(redirectUri: string, state: string): string {
   const params = new URLSearchParams({
     client_id: requireEnv("INSTAGRAM_APP_ID"),
     redirect_uri: redirectUri,
-    scope:
-      "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_manage_insights",
+    scope: INSTAGRAM_SCOPES.join(","),
     response_type: "code",
     state,
   });

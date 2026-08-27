@@ -5,8 +5,8 @@
 /**
  * Post Picker
  *
- * Grid of Instagram post thumbnails, selectable.
- * Fetches from /api/instagram/posts.
+ * Grid of post thumbnails, selectable, on whichever network the account is on.
+ * Fetches from /api/posts.
  */
 
 import { useEffect, useState } from "react";
@@ -14,14 +14,15 @@ import { readCache, writeCache } from "@/lib/client-cache";
 
 const PAGE_SIZE = 60;
 
-interface InstagramPost {
+interface PostSummary {
   id: string;
-  caption?: string;
-  media_type: string;
-  media_url?: string;
-  thumbnail_url?: string;
-  permalink?: string;
+  caption: string | null;
+  permalink: string | null;
+  thumbnailUrl: string | null;
+  videoUrl: string | null;
+  mediaType: string;
   timestamp: string;
+  isReel: boolean;
 }
 
 interface PostPickerProps {
@@ -43,7 +44,7 @@ export default function PostPicker({
   usedPostIds,
   onSelect,
 }: PostPickerProps) {
-  const [posts, setPosts] = useState<InstagramPost[]>([]);
+  const [posts, setPosts] = useState<PostSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -66,7 +67,7 @@ export default function PostPicker({
 
     // Show the cached library instantly (stale-while-revalidate), then refresh.
     const cacheKey = `ig-posts:${instagramAccountId ?? "default"}`;
-    const cached = readCache<InstagramPost[]>(cacheKey, 15 * 60 * 1000);
+    const cached = readCache<PostSummary[]>(cacheKey, 15 * 60 * 1000);
     // Hydrating state from cache is a legitimate effect use here.
     /* eslint-disable react-hooks/set-state-in-effect */
     if (cached.data) {
@@ -75,7 +76,7 @@ export default function PostPicker({
     }
     /* eslint-enable react-hooks/set-state-in-effect */
 
-    fetch(`/api/instagram/posts${params.size ? `?${params}` : ""}`)
+    fetch(`/api/posts${params.size ? `?${params}` : ""}`)
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
@@ -171,15 +172,20 @@ export default function PostPicker({
               const isSelected = selectedPostId === post.id;
               const usedByName = usedPostIds?.[post.id];
               const isUsed = Boolean(usedByName) && !isSelected;
-              const thumb = post.thumbnail_url ?? post.media_url;
-              const isVideo = post.media_type === "VIDEO";
-              const showVideo =
-                isVideo && hoveredId === post.id && Boolean(post.media_url);
+              const thumb = post.thumbnailUrl;
+              const showVideo = hoveredId === post.id && Boolean(post.videoUrl);
               return (
           <button
             key={post.id}
             type="button"
-            onClick={() => onSelect(post.id, post.permalink, thumb, post.caption)}
+            onClick={() =>
+              onSelect(
+                post.id,
+                post.permalink ?? undefined,
+                thumb ?? undefined,
+                post.caption ?? undefined
+              )
+            }
             onMouseEnter={() => setHoveredId(post.id)}
             onMouseLeave={() =>
               setHoveredId((cur) => (cur === post.id ? null : cur))
@@ -200,7 +206,7 @@ export default function PostPicker({
             {thumb ? (
               <img
                 src={thumb}
-                alt={post.caption?.slice(0, 50) ?? "Instagram post"}
+                alt={post.caption?.slice(0, 50) ?? "Post thumbnail"}
                 loading="lazy"
                 decoding="async"
                 className={`w-full h-full object-cover ${isUsed ? "opacity-75" : ""}`}
@@ -212,8 +218,8 @@ export default function PostPicker({
             )}
             {showVideo && (
               <video
-                src={post.media_url}
-                poster={thumb}
+                src={post.videoUrl ?? undefined}
+                poster={thumb ?? undefined}
                 autoPlay
                 muted
                 loop

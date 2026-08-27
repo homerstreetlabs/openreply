@@ -26,10 +26,10 @@ describe("tracked link redirect route", () => {
     mockPrisma.trackedLink.findUnique.mockResolvedValue({
       id: "link_123",
       workspaceId: "workspace_123",
-      automationId: "automation_123",
+      campaignId: "automation_123",
       destinationUrl: "https://example.com/offer",
-      automation: {
-        instagramAccountId: "instagram_account_123",
+      campaign: {
+        connectedAccountId: "instagram_account_123",
       },
     });
     mockPrisma.linkClick.create.mockResolvedValue({});
@@ -54,8 +54,8 @@ describe("tracked link redirect route", () => {
     expect(mockPrisma.linkClick.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         workspaceId: "workspace_123",
-        automationId: "automation_123",
-        instagramAccountId: "instagram_account_123",
+        campaignId: "automation_123",
+        connectedAccountId: "instagram_account_123",
         trackedLinkId: "link_123",
         userAgent: "vitest",
         referrer: "https://instagram.com/",

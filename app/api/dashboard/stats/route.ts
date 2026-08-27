@@ -29,8 +29,8 @@ export async function GET(request: NextRequest) {
     requestedInstagramAccountId && requestedInstagramAccountId !== "all"
       ? requestedInstagramAccountId
       : null;
-  const accountFilter = selectedAccountId
-    ? { instagramAccountId: selectedAccountId }
+  const accountFilter: { connectedAccountId?: string } = selectedAccountId
+    ? { connectedAccountId: selectedAccountId }
     : {};
 
   const [
@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
         dmsSentThisPeriod: true,
       },
     }),
-    prisma.instagramAccount.findFirst({
+    prisma.connectedAccount.findFirst({
       where: { workspaceId },
       orderBy: { connectedAt: "desc" },
       select: {
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
         webhookSubscribed: true,
       },
     }),
-    prisma.instagramAccount.findMany({
+    prisma.connectedAccount.findMany({
       where: { workspaceId },
       orderBy: { connectedAt: "desc" },
       select: {
@@ -77,15 +77,16 @@ export async function GET(request: NextRequest) {
         username: true,
         instagramId: true,
         name: true,
+        platform: true,
         tokenExpiresAt: true,
         webhookSubscribed: true,
       },
     }),
-    prisma.automation.count({ where: { workspaceId, ...accountFilter } }),
-    prisma.automation.count({
+    prisma.campaign.count({ where: { workspaceId, ...accountFilter } }),
+    prisma.campaign.count({
       where: { workspaceId, isActive: true, ...accountFilter },
     }),
-    prisma.dmLog.count({
+    prisma.responseRun.count({
       where: {
         workspaceId,
         status: "SENT",
@@ -93,7 +94,7 @@ export async function GET(request: NextRequest) {
         ...accountFilter,
       },
     }),
-    prisma.dmLog.count({
+    prisma.responseRun.count({
       where: {
         workspaceId,
         status: "SENT",
@@ -101,7 +102,7 @@ export async function GET(request: NextRequest) {
         ...accountFilter,
       },
     }),
-    prisma.dmLog.count({
+    prisma.responseRun.count({
       where: {
         workspaceId,
         status: "SENT",
@@ -109,10 +110,10 @@ export async function GET(request: NextRequest) {
         ...accountFilter,
       },
     }),
-    prisma.dmLog.count({
+    prisma.responseRun.count({
       where: { workspaceId, status: "SENT", ...accountFilter },
     }),
-    prisma.dmLog.groupBy({
+    prisma.responseRun.groupBy({
       by: ["status"],
       where: { workspaceId, createdAt: { gte: monthStart }, ...accountFilter },
       _count: { _all: true },
@@ -121,18 +122,18 @@ export async function GET(request: NextRequest) {
       where: { workspaceId, createdAt: { gte: monthStart }, ...accountFilter },
     }),
     prisma.linkClick.count({ where: { workspaceId, ...accountFilter } }),
-    prisma.dmLog.groupBy({
+    prisma.responseRun.groupBy({
       by: ["matchedKeyword"],
       where: { workspaceId, matchedKeyword: { not: null }, ...accountFilter },
       _count: { _all: true },
     }),
-    prisma.dmLog.findMany({
+    prisma.responseRun.findMany({
       where: { workspaceId, ...accountFilter },
       orderBy: { createdAt: "desc" },
       take: 10,
       include: {
-        automation: { select: { name: true } },
-        instagramAccount: { select: { username: true } },
+        campaign: { select: { name: true } },
+        connectedAccount: { select: { username: true } },
       },
     }),
     userId
@@ -142,10 +143,10 @@ export async function GET(request: NextRequest) {
         })
       : Promise.resolve(null),
     // Distinct people who have interacted, counted as "contacts".
-    prisma.dmLog.findMany({
+    prisma.responseRun.findMany({
       where: { workspaceId, ...accountFilter },
-      distinct: ["commenterId"],
-      select: { commenterId: true },
+      distinct: ["counterpartyId"],
+      select: { counterpartyId: true },
     }),
   ]);
 
@@ -156,7 +157,7 @@ export async function GET(request: NextRequest) {
     const dayEnd = new Date(dayStart);
     dayEnd.setDate(dayEnd.getDate() + 1);
 
-    const count = await prisma.dmLog.count({
+    const count = await prisma.responseRun.count({
       where: {
         workspaceId,
         status: "SENT",

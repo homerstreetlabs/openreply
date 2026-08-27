@@ -4,6 +4,13 @@ import { Suspense, useEffect, useState } from "react";
 import type { AccountOption } from "@/components/account-select";
 import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
 
+interface ConnectablePlatform {
+  platform: string;
+  name: string;
+  connectable: boolean;
+  canMessage: boolean;
+}
+
 interface SettingsData {
   workspace: {
     name: string;
@@ -55,15 +62,21 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
   const [memberError, setMemberError] = useState<string | null>(null);
+  // Connectability depends on which credentials this instance holds, which only
+  // the server knows. A platform whose developer app is still in review has none
+  // yet, which is exactly the state the button should describe.
+  const [platforms, setPlatforms] = useState<ConnectablePlatform[]>([]);
 
   useEffect(() => {
     Promise.all([
       fetch("/api/dashboard/stats").then((res) => res.json()),
       fetch("/api/workspace/members").then((res) => res.json()),
+      fetch("/api/platforms").then((res) => res.json()),
     ])
-      .then(([statsPayload, membersPayload]) => {
+      .then(([statsPayload, membersPayload, platformsPayload]) => {
         if (statsPayload.success) setData(statsPayload.data);
         if (membersPayload.success) setMembersData(membersPayload.data);
+        if (platformsPayload.success) setPlatforms(platformsPayload.data.platforms);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -208,14 +221,40 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="mt-6 pt-4 border-t border-border flex gap-3">
-          <a
-            href="/api/instagram/connect"
-            className="px-4 py-2 rounded text-sm font-medium transition-colors bg-accent text-white hover:bg-accent-hover"
-          >
-            {accounts.length > 0 ? "Connect another account" : "Connect Instagram"}
-          </a>
+        <div className="mt-6 pt-4 border-t border-border flex flex-wrap gap-3">
+          {platforms.filter((p) => p.connectable).map((platform, index) => (
+            <a
+              key={platform.platform}
+              href={`/api/connect/${platform.platform.toLowerCase()}`}
+              className={
+                index === 0
+                  ? "px-4 py-2 rounded text-sm font-medium transition-colors bg-accent text-white hover:bg-accent-hover"
+                  : "px-4 py-2 rounded text-sm font-medium transition-colors border border-border text-foreground hover:bg-surface-hover"
+              }
+            >
+              Connect {platform.name}
+            </a>
+          ))}
+          {platforms.filter((p) => !p.connectable).map((platform) => (
+            <span
+              key={platform.platform}
+              title={`${platform.name} is built and waiting on its developer app. Set its credentials to turn this on.`}
+              className="px-4 py-2 rounded text-sm font-medium border border-border border-dashed text-muted cursor-not-allowed"
+            >
+              {platform.name}
+              <span className="ml-2 text-xs uppercase tracking-wide">Coming soon</span>
+            </span>
+          ))}
         </div>
+        <p className="mt-3 text-xs text-muted">
+          Connecting a Facebook Page brings across every Page you can message or
+          moderate, so comments on its posts and Reels can trigger a DM.
+        </p>
+        <p className="mt-2 text-xs text-muted">
+          YouTube and TikTok reply publicly under the comment rather than by DM,
+          because neither platform permits messaging a commenter. Both are built
+          and waiting on their developer applications.
+        </p>
       </section>
 
       <section className="panel rounded p-4 sm:p-6">
@@ -299,7 +338,8 @@ export default function SettingsPage() {
             <select
               value={inviteRole}
               onChange={(event) =>
-                setInviteRole(event.target.value as "ADMIN" | "MEMBER")
+                // SAFETY: the select below renders exactly these two options.
+                  setInviteRole(event.target.value as "ADMIN" | "MEMBER")
               }
               className="rounded border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-accent/40"
             >

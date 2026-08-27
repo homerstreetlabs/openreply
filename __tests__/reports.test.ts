@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
-    automation: {
+    campaign: {
       findFirst: vi.fn(),
     },
-    dmLog: {
+    responseRun: {
       groupBy: vi.fn(),
       findFirst: vi.fn(),
       count: vi.fn(),
@@ -37,7 +37,7 @@ const baseAutomation = {
   workspace: {
     name: "Acme Studio",
   },
-  instagramAccount: {
+  connectedAccount: {
     username: "acme",
   },
   trackedLinks: [
@@ -52,8 +52,8 @@ const baseAutomation = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockPrisma.automation.findFirst.mockResolvedValue(baseAutomation);
-  mockPrisma.dmLog.groupBy
+  mockPrisma.campaign.findFirst.mockResolvedValue(baseAutomation);
+  mockPrisma.responseRun.groupBy
     .mockResolvedValueOnce([
       { status: "SENT", _count: { _all: 20 } },
       { status: "FAILED", _count: { _all: 1 } },
@@ -64,11 +64,11 @@ beforeEach(() => {
       { matchedKeyword: "SHOP", _count: { _all: 6 } },
     ]);
   mockPrisma.linkClick.count.mockResolvedValue(12);
-  mockPrisma.dmLog.findFirst.mockResolvedValue({
+  mockPrisma.responseRun.findFirst.mockResolvedValue({
     dmSentAt: new Date("2026-05-20T12:00:00.000Z"),
     createdAt: new Date("2026-05-20T12:00:00.000Z"),
   });
-  mockPrisma.dmLog.count.mockResolvedValue(2);
+  mockPrisma.responseRun.count.mockResolvedValue(2);
 });
 
 describe("campaign reports", () => {
@@ -106,7 +106,7 @@ describe("campaign reports", () => {
   });
 
   it("returns null when a report slug is missing or disabled", async () => {
-    mockPrisma.automation.findFirst.mockResolvedValueOnce(null);
+    mockPrisma.campaign.findFirst.mockResolvedValueOnce(null);
 
     await expect(getCampaignReportBySlug("missing")).resolves.toBeNull();
   });

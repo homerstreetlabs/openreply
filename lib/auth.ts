@@ -1,33 +1,55 @@
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import Nodemailer from "next-auth/providers/nodemailer";
-import Resend from "next-auth/providers/resend";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/db/client";
 import { ensureWorkspaceForUser, getPrimaryWorkspace } from "@/lib/workspace";
+import { sendEmail, RecipientSuppressedError as TransportSuppressed } from "@/lib/email/send";
 
 type AdapterPrismaClient = Parameters<typeof PrismaAdapter>[0];
 
 const emailFrom = process.env.EMAIL_FROM ?? "OpenReply <login@example.com>";
-// Setting EMAIL_SERVER switches magic links to your own SMTP server, for
-// self-hosters who do not want a third-party mail service. Resend stays the
-// default, so an existing deployment is unaffected.
-const smtpServer = process.env.EMAIL_SERVER;
 
 /**
- * Provider id the login form has to sign in with. It differs per transport,
- * so it is derived here rather than hardcoded at the call site.
+ * Provider id the login form signs in with. One transport now, but the login
+ * page should not hardcode the string.
  */
-export const EMAIL_PROVIDER_ID = smtpServer ? "nodemailer" : "resend";
+export const EMAIL_PROVIDER_ID = "nodemailer";
+
+/**
+ * Re-exported so the login page has one error to catch.
+ *
+ * Cloudflare suppresses an address account-wide after a single spam complaint
+ * and rate-limits removal, so an unhandled suppression is a silent permanent
+ * lockout: the user asks for a link, we report success, and no mail arrives.
+ * The transport raises it; this names it where the login page looks.
+ */
+export const RecipientSuppressedError = TransportSuppressed;
 
 export const authConfig = {
+  // SAFETY: the adapter reads the delegate methods this client exposes. The
+  // double assertion is required because Auth.js types its client against its
+  // own vendored Prisma types, which are structurally unrelated to ours.
   adapter: PrismaAdapter(prisma as unknown as AdapterPrismaClient),
   providers: [
-    smtpServer
-      ? Nodemailer({ server: smtpServer, from: emailFrom })
-      : Resend({
-          apiKey: process.env.RESEND_API_KEY ?? "missing-resend-api-key",
-          from: emailFrom,
-        }),
+    Nodemailer({
+      // Unused. `sendVerificationRequest` below is fully overridden and routes
+      // through the shared transport, which prefers the Cloudflare binding. The
+      // provider still requires the field, so it is only a placeholder when no
+      // SMTP fallback is configured.
+      server: process.env.EMAIL_SERVER ?? "smtp://unused",
+      from: emailFrom,
+      async sendVerificationRequest({ identifier, url }) {
+        const { host } = new URL(url);
+        // One transport for magic links and creator invitations, so a mail
+        // configuration that works for one cannot fail for the other.
+        await sendEmail({
+          to: identifier,
+          subject: `Sign in to ${host}`,
+          text: `Sign in to ${host}\n${url}\n\nThis link expires in 24 hours.\n`,
+          html: `<body><p>Sign in to <strong>${host}</strong></p><p><a href="${url}">Sign in</a></p><p>This link expires in 24 hours. If you did not request it, ignore this email.</p></body>`,
+        });
+      },
+    }),
   ],
   callbacks: {
     async session({ session, user }) {

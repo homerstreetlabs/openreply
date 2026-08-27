@@ -1,10 +1,14 @@
 "use client";
 
+import type { Platform } from "@/app/generated/prisma/client";
+
 export interface AccountOption {
   id: string;
   username: string;
   instagramId: string;
   name?: string | null;
+  /** Drives which campaign options are offered, via the adapter's capabilities. */
+  platform: Platform;
 }
 
 interface AccountSelectProps {

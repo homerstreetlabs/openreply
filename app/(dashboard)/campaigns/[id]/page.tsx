@@ -93,18 +93,14 @@ export default function CampaignDetailPage() {
       .catch(() => setAvatarUrl(null));
 
     if (campaign.postId) {
-      fetch(`/api/instagram/posts?instagramAccountId=${acct}&limit=50`)
+      fetch(`/api/posts?accountId=${acct}&limit=50`)
         .then((r) => r.json())
         .then((payload) => {
           if (!payload.success) return;
           const hit = (
-            payload.data as {
-              id: string;
-              thumbnail_url?: string;
-              media_url?: string;
-            }[]
+            payload.data as { id: string; thumbnailUrl: string | null }[]
           ).find((p) => p.id === campaign.postId);
-          setPostThumb(hit?.thumbnail_url ?? hit?.media_url ?? null);
+          setPostThumb(hit?.thumbnailUrl ?? null);
         })
         .catch(() => setPostThumb(null));
     }

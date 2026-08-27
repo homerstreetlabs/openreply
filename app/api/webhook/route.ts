@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getDMQueue } from "@/lib/queue/client";
-import {
-  parseCommentEvents,
-  parseMessageEvents,
-  parsePostbackEvents,
-  parseReadEvents,
-  verifyWebhookSignature,
-} from "@/lib/meta/webhook";
+import { enqueue, COMMENT_JOB_NAME } from "@/lib/queue/client";
+import { instagramAdapter } from "@/lib/platforms/instagram";
 import { MESSAGE_JOB_NAME, POSTBACK_JOB_NAME } from "@/lib/queue/client";
 import { Prisma } from "@/app/generated/prisma/client";
 
@@ -33,7 +27,15 @@ export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-hub-signature-256");
 
-  if (!verifyWebhookSignature(rawBody, signature)) {
+  const discovery = instagramAdapter.discovery;
+  if (discovery.kind !== "webhook") {
+    return NextResponse.json(
+      { success: false, error: "Instagram does not use webhook discovery" },
+      { status: 404 }
+    );
+  }
+
+  if (!discovery.verifySignature(rawBody, signature)) {
     // Record the attempt so a signature mismatch is visible rather than a
     // silent 401. This is the common symptom of FACEBOOK_APP_SECRET being
     // set to the wrong app's secret for the webhook's signing key.
@@ -67,43 +69,44 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const events = discovery.parseEvents(payload);
+
   const webhookEvent = await prisma.webhookEvent.create({
     data: {
+        route: "/api/webhook",
       object:
         typeof payload === "object" && payload && "object" in payload
           ? String(payload.object)
           : null,
+      // SAFETY: the result of JSON.parse on a signature-verified body, which is
+      // what Prisma.InputJsonValue accepts.
       payload: payload as Prisma.InputJsonValue,
       status: "PENDING",
     },
   });
 
   try {
-    const commentEvents = parseCommentEvents(
-      payload as Parameters<typeof parseCommentEvents>[0]
-    );
-    const queue = getDMQueue();
+    const commentEvents = events.filter((e) => e.kind === "comment");
 
     for (const event of commentEvents) {
-      const account = await prisma.instagramAccount.findUnique({
-        where: { instagramId: event.instagramAccountId },
+      const account = await prisma.connectedAccount.findUnique({
+        where: { instagramId: event.accountExternalId },
         select: { workspaceId: true },
       });
 
-      await queue.add(
-        "process-comment",
+      await enqueue(
+        COMMENT_JOB_NAME,
         {
-          instagramAccountId: event.instagramAccountId,
+          platform: "INSTAGRAM",
+          instagramAccountId: event.accountExternalId,
           commentId: event.commentId,
           commentText: event.commentText,
           commenterId: event.commenterId,
           commenterName: event.commenterName,
-          mediaId: event.mediaId,
+          mediaId: event.postId,
           source: "WEBHOOK",
         },
-        {
-          jobId: `comment_${event.instagramAccountId}_${event.commentId}`,
-        }
+        `comment_${event.accountExternalId}_${event.commentId}`
       );
 
       if (account) {
@@ -115,57 +118,48 @@ export async function POST(request: NextRequest) {
     }
 
     // Button taps from opening DMs → deliver the reveal message.
-    const postbackEvents = parsePostbackEvents(
-      payload as Parameters<typeof parsePostbackEvents>[0]
-    );
+    const postbackEvents = events.filter((e) => e.kind === "postback");
 
     for (const event of postbackEvents) {
-      await queue.add(
+      await enqueue(
         POSTBACK_JOB_NAME,
         {
-          instagramAccountId: event.instagramAccountId,
+          platform: "INSTAGRAM",
+          instagramAccountId: event.accountExternalId,
           userId: event.userId,
           payload: event.payload,
           mid: event.mid,
         },
-        {
-          // BullMQ forbids ":" in custom job ids, and the payload is
-          // "reveal:<id>", so build with underscores and strip any colons.
-          jobId: `postback_${event.instagramAccountId}_${event.userId}_${(
-            event.mid ?? event.payload
-          ).replace(/:/g, "_")}`,
-        }
+        `postback_${event.accountExternalId}_${event.userId}_${(
+          event.mid ?? event.payload
+        ).replace(/:/g, "_")}`
       );
     }
 
     // Inbound DMs → keyword-triggered autoreply.
-    const messageEvents = parseMessageEvents(
-      payload as Parameters<typeof parseMessageEvents>[0]
-    );
+    const messageEvents = events.filter((e) => e.kind === "message");
 
     for (const event of messageEvents) {
-      const account = await prisma.instagramAccount.findUnique({
-        where: { instagramId: event.instagramAccountId },
+      const account = await prisma.connectedAccount.findUnique({
+        where: { instagramId: event.accountExternalId },
         select: { workspaceId: true },
       });
 
-      await queue.add(
+      await enqueue(
         MESSAGE_JOB_NAME,
         {
-          instagramAccountId: event.instagramAccountId,
+          platform: "INSTAGRAM",
+          instagramAccountId: event.accountExternalId,
           messageId: event.messageId,
           messageText: event.messageText,
           senderId: event.senderId,
         },
-        {
-          // Message ids can contain characters BullMQ rejects in a job id (":"
-          // in particular). base64url encodes into exactly the allowed alphabet
-          // and stays injective — substituting invalid characters would let two
-          // distinct mids collapse onto one job id, silently dropping a reply.
-          jobId: `message_${event.instagramAccountId}_${Buffer.from(
-            event.messageId
-          ).toString("base64url")}`,
-        }
+        // base64url stays injective. Substituting characters instead would let
+        // two distinct message ids collapse onto one key, silently dropping a
+        // reply, and the key is still what dedup keys off.
+        `message_${event.accountExternalId}_${Buffer.from(
+          event.messageId
+        ).toString("base64url")}`
       );
 
       if (account) {
@@ -179,25 +173,23 @@ export async function POST(request: NextRequest) {
     // If a user reads the opening DM and never taps the button, deliver the
     // same next-step DM after five minutes. The worker no-ops this delayed job
     // if a real button tap has already delivered the reveal.
-    const readEvents = parseReadEvents(
-      payload as Parameters<typeof parseReadEvents>[0]
-    );
+    const readEvents = events.filter((e) => e.kind === "read");
 
     for (const event of readEvents) {
-      const openingLogs = await prisma.dmLog.findMany({
+      const openingLogs = await prisma.responseRun.findMany({
         where: {
-          commenterId: event.userId,
+          counterpartyId: event.userId,
           status: "SENT",
-          automation: {
+          campaign: {
             isActive: true,
             openingDmEnabled: true,
-            instagramAccount: {
-              instagramId: event.instagramAccountId,
+            connectedAccount: {
+              instagramId: event.accountExternalId,
             },
           },
         },
         select: {
-          automation: {
+          campaign: {
             select: {
               id: true,
             },
@@ -207,22 +199,21 @@ export async function POST(request: NextRequest) {
 
       const scheduledAutomationIds = new Set<string>();
       for (const log of openingLogs) {
-        const automation = log.automation;
+        const automation = log.campaign;
         if (scheduledAutomationIds.has(automation.id)) continue;
         scheduledAutomationIds.add(automation.id);
 
-        await queue.add(
+        await enqueue(
           POSTBACK_JOB_NAME,
           {
-            instagramAccountId: event.instagramAccountId,
+            platform: "INSTAGRAM",
+            instagramAccountId: event.accountExternalId,
             userId: event.userId,
             payload: `reveal:${automation.id}`,
             fallback: true,
           },
-          {
-            delay: OPENING_DM_READ_FALLBACK_DELAY_MS,
-            jobId: `read_fallback_${event.instagramAccountId}_${event.userId}_${automation.id}`,
-          }
+          `read_fallback_${event.accountExternalId}_${event.userId}_${automation.id}`,
+          { delaySeconds: OPENING_DM_READ_FALLBACK_DELAY_MS / 1000 }
         );
       }
     }

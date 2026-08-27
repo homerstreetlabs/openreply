@@ -10,7 +10,7 @@ import { useEffect, useState, useCallback } from "react";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import StatusBadge from "@/components/status-badge";
 
-interface DmLog {
+interface ResponseRun {
   id: string;
   commenterId: string;
   commenterName: string | null;
@@ -40,7 +40,7 @@ const STATUS_FILTERS = [
 ];
 
 export default function LogsPage() {
-  const [logs, setLogs] = useState<DmLog[]>([]);
+  const [logs, setLogs] = useState<ResponseRun[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("ALL");

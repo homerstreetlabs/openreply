@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
+import type { Platform } from "@/app/generated/prisma/client";
 import {
   getAllUserMedia,
   getMediaInsights,
@@ -66,7 +67,7 @@ export interface OverviewPost {
 
 export interface OverviewResponse {
   account: { id: string; username: string };
-  accounts: Array<{ id: string; username: string }>;
+  accounts: Array<{ id: string; username: string; instagramId: string; platform: Platform }>;
   requestedCount: "all" | number;
   truncated: boolean;
   insightsAvailable: boolean;
@@ -210,10 +211,10 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    const accounts = await prisma.instagramAccount.findMany({
+    const accounts = await prisma.connectedAccount.findMany({
       where: { workspaceId },
       orderBy: { connectedAt: "desc" },
-      select: { id: true, username: true },
+      select: { id: true, username: true, instagramId: true, platform: true },
     });
 
     // Followers is a point-in-time figure and deliberately not part of

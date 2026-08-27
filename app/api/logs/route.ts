@@ -1,3 +1,4 @@
+import type { Prisma } from "@/app/generated/prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
@@ -26,26 +27,27 @@ export async function GET(request: NextRequest) {
       ? (status as DmStatus)
       : null;
 
-  const where = {
-    workspaceId,
-    ...(parsedStatus ? { status: parsedStatus } : {}),
-    ...(instagramAccountId && instagramAccountId !== "all"
-      ? { instagramAccountId }
-      : {}),
-  };
+  // Assigned rather than spread. A conditional spread is not excess-property
+  // checked, so a stale column name would compile here and fail only when
+  // Prisma saw it. Assignment onto a typed object is checked.
+  const where: Prisma.ResponseRunWhereInput = { workspaceId };
+  if (parsedStatus) where.status = parsedStatus;
+  if (instagramAccountId && instagramAccountId !== "all") {
+    where.connectedAccountId = instagramAccountId;
+  }
 
   const [logs, total] = await Promise.all([
-    prisma.dmLog.findMany({
+    prisma.responseRun.findMany({
       where,
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
       include: {
-        automation: { select: { name: true, keywords: true } },
-        instagramAccount: { select: { username: true } },
+        campaign: { select: { name: true, keywords: true } },
+        connectedAccount: { select: { username: true } },
       },
     }),
-    prisma.dmLog.count({ where }),
+    prisma.responseRun.count({ where }),
   ]);
 
   return NextResponse.json({
