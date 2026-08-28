@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      migrations_already_applied:
+        description: >-
+          Skip the migration guard. Tick this only after running `pnpm db:migrate`
+          against production from a machine the database allows.
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -57,3 +65,168 @@ jobs:
           FACEBOOK_APP_ID: test
           FACEBOOK_APP_SECRET: test
           WEBHOOK_VERIFY_TOKEN: test
+
+  deploy:
+    name: Deploy to Cloudflare
+    needs: test
+    if: >-
+      github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+
+    # One deploy at a time, and never cancel one that is running. This job
+    # uploads two Workers in sequence, so a cancellation between them leaves the
+    # engine on the new version and the web Worker on the old one. A queued
+    # deploy is the cheaper failure.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The migration guard diffs the range the push covers, so it needs the
+          # commit the push started from. The default shallow clone has only the
+          # tip.
+          fetch-depth: 0
+
+      # This job deliberately never runs `prisma migrate deploy`. The database
+      # accepts connections only from whitelisted public IPs or from inside its
+      # VNet, and GitHub-hosted runners are neither, so a migrate step would
+      # stall until the job timed out. Migrations are applied by hand from a
+      # whitelisted machine, and that is not going to change here: a tunnel, a
+      # proxy or a self-hosted runner would each put the production database
+      # behind CI.
+      #
+      # The gap that leaves is a merge that adds a migration, which would ship
+      # code expecting columns the database does not have. So refuse that push
+      # and make the operator say the migration is applied.
+      - name: Guard against unapplied migrations
+        # `github.event.inputs` values are strings, so `!inputs...` would read
+        # the string "false" as truthy and skip the guard in exactly the case it
+        # is wanted. Compare against "true" instead.
+        if: github.event.inputs.migrations_already_applied != 'true'
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          rerun="Re-run this workflow from the Actions tab with 'migrations_already_applied' ticked."
+
+          if [ "$EVENT" != "push" ]; then
+            echo "A manual run covers no pushed range, so it cannot work out which"
+            echo "migrations are new."
+            echo
+            echo "Confirm the database is up to date, then re-run with"
+            echo "'migrations_already_applied' ticked."
+            echo "::error::A manual deploy must confirm that migrations are applied."
+            exit 1
+          fi
+
+          # github.event.before is all-zeroes when the branch did not exist
+          # before, and points at a discarded commit after a force push. Neither
+          # gives a range to diff, so fail rather than let `git diff` decide.
+          have_before=yes
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            have_before=no
+          elif ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            have_before=no
+          fi
+
+          if [ "$have_before" = "no" ]; then
+            echo "The commit this push started from is not in this clone:"
+            echo "  $BEFORE"
+            echo
+            echo "That is what a force push or a re-created branch looks like, and it"
+            echo "leaves nothing to compare against."
+            echo
+            echo "$rerun"
+            echo "::error::Cannot work out which migrations this push added."
+            exit 1
+          fi
+
+          # A migration is a directory, so only paths nested one level below
+          # prisma/migrations/ count. That is also what skips
+          # migration_lock.toml, which sits directly in it.
+          added=$(
+            git diff --name-only --diff-filter=A "$BEFORE" "$AFTER" -- prisma/migrations \
+              | awk -F/ 'NF > 3 { print $3 }' \
+              | sort -u
+          )
+
+          if [ -n "$added" ]; then
+            echo "This push adds migrations that CI cannot apply:"
+            echo
+            echo "$added" | sed 's/^/  /'
+            echo
+            echo "Run 'pnpm db:migrate' against production from a machine the database"
+            echo "allows, then deploy."
+            echo
+            echo "$rerun"
+            echo "::error::New migrations must be applied by hand before deploying."
+            exit 1
+          fi
+
+          echo "No migrations added between $BEFORE and $AFTER."
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Not redundant with the `prisma generate` inside `pnpm run deploy`. The
+      # engine deploys first and bundles `workers/engine/index.ts`, which imports
+      # the generated client, so the client has to exist before that step.
+      - name: Generate Prisma client
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder
+
+      # The engine goes first, and the order is not stylistic. wrangler.jsonc
+      # binds AccountRateLimiter and QuotaBucket by `script_name` on
+      # openreply-engine, so deploying the web Worker against an engine that does
+      # not exist yet fails outright.
+      #
+      # It is redeployed on every push even when only web code changed, because
+      # bindings attach on upload and nowhere else. An engine that has not been
+      # re-uploaded since a wrangler config edit behaves as if the new binding
+      # does not exist, and falls back silently.
+      - name: Deploy the engine Worker
+        run: pnpm deploy:engine
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # `pnpm run deploy`, not `pnpm deploy`. Bare `pnpm deploy` invokes pnpm's
+      # own deploy command and fails with ERR_PNPM_CANNOT_DEPLOY.
+      - name: Deploy the web Worker
+        run: pnpm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # A placeholder, and that is the right value rather than a shortcut.
+          # The OpenNext build runs `prisma generate`, which wants a datasource
+          # url in prisma.config.ts but only ever reads prisma/schema.prisma; it
+          # opens no connection, which is just as well from a runner the database
+          # would refuse.
+          #
+          # Nothing bakes this in either: `connectionString()` in
+          # lib/db/client.ts compiles to a live `process.env.DATABASE_URL` read
+          # in the emitted bundle, so no build-time value can reach production.
+          # The Worker prefers its HYPERDRIVE binding at runtime and falls back
+          # to its own DATABASE_URL secret. Passing the real connection string
+          # here would only widen where it can leak.
+          DATABASE_URL: postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder
