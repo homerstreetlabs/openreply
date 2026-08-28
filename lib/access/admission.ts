@@ -88,12 +88,12 @@ export async function admit(
         },
       },
     }),
-    prisma.creatorInvitation.findFirst({
-      where: { email: address, status: "PENDING" },
+    prisma.invitation.findFirst({
+      where: { email: address, kind: "CREATOR", status: "PENDING" },
       select: { id: true, expiresAt: true },
     }),
-    prisma.workspaceInvitation.findFirst({
-      where: { email: address, status: "PENDING" },
+    prisma.invitation.findFirst({
+      where: { email: address, kind: "MEMBER", status: "PENDING" },
       select: { id: true, workspaceId: true, expiresAt: true },
     }),
   ]);
@@ -120,6 +120,10 @@ export async function admit(
   if (memberInvite) {
     if (memberInvite.expiresAt <= now) {
       return { kind: "refused", reason: "invitation_expired" };
+    }
+    // A member invitation whose workspace was deleted has nothing to join.
+    if (!memberInvite.workspaceId) {
+      return { kind: "refused", reason: "not_invited" };
     }
     return {
       kind: "member",
@@ -188,21 +192,32 @@ async function acceptWorkspaceInvitations(
   address: string
 ): Promise<void> {
   const now = new Date();
-  const invitations = await prisma.workspaceInvitation.findMany({
-    where: { email: address, status: "PENDING", expiresAt: { gt: now } },
+  const invitations = await prisma.invitation.findMany({
+    where: {
+      email: address,
+      kind: "MEMBER",
+      status: "PENDING",
+      expiresAt: { gt: now },
+      workspaceId: { not: null },
+    },
     select: { id: true, workspaceId: true, role: true },
   });
 
   for (const invitation of invitations) {
+    if (!invitation.workspaceId) continue;
     await prisma.$transaction([
       prisma.workspaceMember.upsert({
         where: {
           workspaceId_userId: { workspaceId: invitation.workspaceId, userId },
         },
-        create: { workspaceId: invitation.workspaceId, userId, role: invitation.role },
-        update: { role: invitation.role },
+        create: {
+          workspaceId: invitation.workspaceId,
+          userId,
+          role: invitation.role ?? "MEMBER",
+        },
+        update: { role: invitation.role ?? "MEMBER" },
       }),
-      prisma.workspaceInvitation.update({
+      prisma.invitation.update({
         where: { id: invitation.id },
         data: { status: "ACCEPTED", acceptedAt: now },
       }),

@@ -85,8 +85,8 @@ export async function listPeople(): Promise<People> {
         },
       },
     }),
-    prisma.creatorInvitation.findMany({
-      where: { status: "PENDING" },
+    prisma.invitation.findMany({
+      where: { status: "PENDING", kind: "CREATOR" },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -97,13 +97,15 @@ export async function listPeople(): Promise<People> {
         invitedBy: { select: { email: true, name: true } },
       },
     }),
-    prisma.workspaceInvitation.findMany({
-      where: { status: "PENDING" },
+    prisma.invitation.findMany({
+      where: { status: "PENDING", kind: "MEMBER" },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
         email: true,
         expiresAt: true,
+        deliveredAt: true,
+        deliveryError: true,
         invitedBy: { select: { email: true, name: true } },
       },
     }),
@@ -147,8 +149,8 @@ export async function listPeople(): Promise<People> {
         kind: "member" as const,
         invitedBy: invite.invitedBy?.name ?? invite.invitedBy?.email ?? null,
         expiresAt: invite.expiresAt,
-        deliveredAt: null,
-        deliveryError: null,
+        deliveredAt: invite.deliveredAt,
+        deliveryError: invite.deliveryError,
       })),
     ],
   };

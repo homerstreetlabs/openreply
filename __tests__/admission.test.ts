@@ -3,8 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
     user: { findUnique: vi.fn() },
-    creatorInvitation: { findFirst: vi.fn() },
-    workspaceInvitation: { findFirst: vi.fn() },
+    invitation: { findFirst: vi.fn() },
     platformGrant: { findFirst: vi.fn() },
   },
 }));
@@ -17,10 +16,22 @@ const HOUR = 60 * 60 * 1000;
 const later = () => new Date(Date.now() + 24 * HOUR);
 const earlier = () => new Date(Date.now() - HOUR);
 
+/**
+ * One table serves both kinds now, so the mock routes on `kind` exactly as the
+ * query does.
+ */
+function invitations(options: {
+  creator?: unknown;
+  member?: unknown;
+} = {}) {
+  mockPrisma.invitation.findFirst.mockImplementation(async ({ where }) =>
+    where.kind === "CREATOR" ? (options.creator ?? null) : (options.member ?? null)
+  );
+}
+
 function noRecords() {
   mockPrisma.user.findUnique.mockResolvedValue(null);
-  mockPrisma.creatorInvitation.findFirst.mockResolvedValue(null);
-  mockPrisma.workspaceInvitation.findFirst.mockResolvedValue(null);
+  invitations();
   mockPrisma.platformGrant.findFirst.mockResolvedValue(null);
 }
 
@@ -118,10 +129,7 @@ describe("a creator who predates the gate", () => {
 
 describe("invitations", () => {
   it("admits a pending creator invitation", async () => {
-    mockPrisma.creatorInvitation.findFirst.mockResolvedValue({
-      id: "invite_1",
-      expiresAt: later(),
-    });
+    invitations({ creator: { id: "invite_1", expiresAt: later() } });
 
     await expect(admit("new@example.com")).resolves.toEqual({
       kind: "creator",
@@ -130,10 +138,8 @@ describe("invitations", () => {
   });
 
   it("admits a pending workspace invitation with its workspace", async () => {
-    mockPrisma.workspaceInvitation.findFirst.mockResolvedValue({
-      id: "invite_2",
-      workspaceId: "workspace_1",
-      expiresAt: later(),
+    invitations({
+      member: { id: "invite_2", workspaceId: "workspace_1", expiresAt: later() },
     });
 
     await expect(admit("teammate@example.com")).resolves.toEqual({
@@ -144,10 +150,7 @@ describe("invitations", () => {
   });
 
   it("refuses an expired invitation, and says why", async () => {
-    mockPrisma.creatorInvitation.findFirst.mockResolvedValue({
-      id: "invite_1",
-      expiresAt: earlier(),
-    });
+    invitations({ creator: { id: "invite_1", expiresAt: earlier() } });
 
     await expect(admit("stale@example.com")).resolves.toEqual({
       kind: "refused",

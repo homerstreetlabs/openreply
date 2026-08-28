@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
-import { acceptCreatorInvitation, type AcceptFailure } from "@/lib/creators/invitations";
+import { acceptInvitation, type AcceptFailure } from "@/lib/invitations";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +14,7 @@ const MESSAGES = {
     "This invitation has expired. Ask whoever invited you to send a new one.",
   wrong_email:
     "This invitation was sent to a different email address. Sign in with the address it was sent to.",
+  workspace_gone: "The workspace this invitation was for no longer exists.",
 } satisfies Record<AcceptFailure, string>;
 
 /**
@@ -26,6 +27,7 @@ const FAILURES: readonly AcceptFailure[] = [
   "already_accepted",
   "expired",
   "wrong_email",
+  "workspace_gone",
 ];
 
 function failureMessage(reason: string | undefined): string | null {
@@ -58,9 +60,9 @@ export default async function JoinPage({
   }
 
   // A read, so the page can name the workspace before anything is created.
-  const invitation = await prisma.creatorInvitation.findUnique({
+  const invitation = await prisma.invitation.findUnique({
     where: { token },
-    select: { email: true, creatorName: true, status: true, expiresAt: true },
+    select: { email: true, invitedName: true, status: true, expiresAt: true },
   });
 
   async function accept() {
@@ -70,7 +72,7 @@ export default async function JoinPage({
       redirect(`/login?callbackUrl=${encodeURIComponent(`/join/${token}`)}`);
     }
 
-    const result = await acceptCreatorInvitation({
+    const result = await acceptInvitation({
       token,
       userId: current.user.id,
       userEmail: current.user.email,
@@ -104,8 +106,8 @@ export default async function JoinPage({
         ) : (
           <>
             <p className="mt-4 text-sm text-muted">
-              {invitation.creatorName
-                ? `${invitation.creatorName}, you have been invited to OpenReply.`
+              {invitation.invitedName
+                ? `${invitation.invitedName}, you have been invited to OpenReply.`
                 : "You have been invited to OpenReply."}{" "}
               Accepting creates your own workspace, where you connect your own
               accounts.

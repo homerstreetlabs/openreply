@@ -264,7 +264,7 @@ unit(4, "closed registration", () => {
   check("accepting an invitation is not a GET render", () => {
     const src = read("app/join/[token]/page.tsx");
     const action = src.indexOf('"use server"');
-    const accept = src.indexOf("acceptCreatorInvitation({");
+    const accept = src.indexOf("acceptInvitation({");
     if (action === -1) return "no server action on the page";
     return accept > action || "the invitation is accepted during render";
   });
@@ -277,8 +277,10 @@ unit(5, "admins and users", () => {
 
   check("it can grant, revoke and suspend", () => {
     const src = read("app/api/admin/users/route.ts");
+    // Handlers are wrapped, so they are exported bindings rather than
+    // function declarations.
     return ["GET", "POST", "DELETE", "PATCH"].every((verb) =>
-      new RegExp(`export async function ${verb}`).test(src)
+      new RegExp(`export (async function|const) ${verb}\\b`).test(src)
     );
   });
 

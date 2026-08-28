@@ -14,8 +14,7 @@ const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
     user: { findUnique: vi.fn() },
     workspaceMember: { findFirst: vi.fn(), upsert: vi.fn() },
-    workspaceInvitation: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-    creatorInvitation: { findFirst: vi.fn() },
+    invitation: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
     platformGrant: { findFirst: vi.fn() },
     workspace: { create: vi.fn() },
     $transaction: vi.fn(),
@@ -35,10 +34,9 @@ const membership = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.workspaceMember.findFirst.mockResolvedValue(membership);
-  mockPrisma.workspaceInvitation.findMany.mockResolvedValue([]);
+  mockPrisma.invitation.findMany.mockResolvedValue([]);
   mockPrisma.workspace.create.mockResolvedValue({ id: "ws_new", name: "New" });
-  mockPrisma.workspaceInvitation.findFirst.mockResolvedValue(null);
-  mockPrisma.creatorInvitation.findFirst.mockResolvedValue(null);
+  mockPrisma.invitation.findFirst.mockResolvedValue(null);
   mockPrisma.platformGrant.findFirst.mockResolvedValue(null);
   mockPrisma.$transaction.mockResolvedValue([]);
   // An established creator, which is the case that reaches the provisioning
@@ -56,7 +54,7 @@ describe("reading a workspace", () => {
 
     expect(workspace).toEqual(membership.workspace);
     expect(mockPrisma.workspace.create).not.toHaveBeenCalled();
-    expect(mockPrisma.workspaceInvitation.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.invitation.findMany).not.toHaveBeenCalled();
   });
 
   it("reports no workspace rather than creating one", async () => {
@@ -71,7 +69,7 @@ describe("ensuring a workspace", () => {
   it("no longer sweeps invitations, so a render cannot pay for that query", async () => {
     await ensureWorkspaceForUser("user_1", "creator@example.com");
 
-    expect(mockPrisma.workspaceInvitation.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.invitation.findMany).not.toHaveBeenCalled();
   });
 
   it("still creates one for a user who has none", async () => {
@@ -88,7 +86,7 @@ describe("provisioning at sign-in", () => {
   it("sweeps pending invitations, which is where that cost now lives", async () => {
     await settleAdmission("user_1", "creator@example.com");
 
-    expect(mockPrisma.workspaceInvitation.findMany).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.invitation.findMany).toHaveBeenCalledTimes(1);
   });
 
   /**
@@ -98,7 +96,7 @@ describe("provisioning at sign-in", () => {
    */
   it("accepts invitations before deciding the user needs a workspace", async () => {
     const order: string[] = [];
-    mockPrisma.workspaceInvitation.findMany.mockImplementation(async () => {
+    mockPrisma.invitation.findMany.mockImplementation(async () => {
       order.push("sweep");
       return [];
     });
@@ -118,7 +116,7 @@ describe("provisioning at sign-in", () => {
    * be accepted.
    */
   it("accepts every pending invitation, not just the first", async () => {
-    mockPrisma.workspaceInvitation.findMany.mockResolvedValue([
+    mockPrisma.invitation.findMany.mockResolvedValue([
       { id: "inv_1", workspaceId: "ws_a", role: "MEMBER" },
       { id: "inv_2", workspaceId: "ws_b", role: "ADMIN" },
     ]);
@@ -131,7 +129,7 @@ describe("provisioning at sign-in", () => {
   it("skips the sweep entirely when there is no address to match", async () => {
     await settleAdmission("user_1", null);
 
-    expect(mockPrisma.workspaceInvitation.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.invitation.findMany).not.toHaveBeenCalled();
   });
 
   /**
@@ -149,6 +147,6 @@ describe("provisioning at sign-in", () => {
     await settleAdmission("user_admin", "admin@openreply.test");
 
     expect(mockPrisma.workspace.create).not.toHaveBeenCalled();
-    expect(mockPrisma.workspaceInvitation.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.invitation.findMany).not.toHaveBeenCalled();
   });
 });

@@ -3,8 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
     user: { findMany: vi.fn() },
-    creatorInvitation: { findMany: vi.fn() },
-    workspaceInvitation: { findMany: vi.fn() },
+    invitation: { findMany: vi.fn() },
   },
 }));
 
@@ -27,8 +26,7 @@ function user(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockPrisma.creatorInvitation.findMany.mockResolvedValue([]);
-  mockPrisma.workspaceInvitation.findMany.mockResolvedValue([]);
+  mockPrisma.invitation.findMany.mockResolvedValue([]);
 });
 
 /**
@@ -109,7 +107,8 @@ describe("listPeople", () => {
 
   it("shows why an invitation never arrived, rather than calling it pending", async () => {
     mockPrisma.user.findMany.mockResolvedValue([]);
-    mockPrisma.creatorInvitation.findMany.mockResolvedValue([
+    mockPrisma.invitation.findMany.mockImplementation(async ({ where }) =>
+      where.kind === "MEMBER" ? [] : [
       {
         id: "invite_1",
         email: "new@example.com",

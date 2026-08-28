@@ -15,10 +15,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { canConnectAccount } from "../lib/accounts/directory";
-import {
-  buildInvitationUrl,
-  normalizeInvitationEmail,
-} from "../lib/workspace-invitations";
+import { invitationUrl } from "../lib/invitations";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -65,13 +62,10 @@ describe("agency workspace helpers", () => {
     ).resolves.toMatchObject({ allowed: true, reason: null });
   });
 
-  it("normalizes invitation emails and builds invite URLs", () => {
-    expect(normalizeInvitationEmail(" Team@Agency.COM ")).toBe(
-      "team@agency.com"
-    );
-    expect(buildInvitationUrl("token_123", "https://manychat-alternative.com/")).toBe(
-      "https://manychat-alternative.com/invite/token_123"
-    );
+  /** Each kind lands on the page that knows how to accept it. */
+  it("routes each invitation kind to its own accept page", () => {
+    expect(invitationUrl("MEMBER", "token_123")).toMatch(/\/invite\/token_123$/);
+    expect(invitationUrl("CREATOR", "token_123")).toMatch(/\/join\/token_123$/);
   });
 });
 
