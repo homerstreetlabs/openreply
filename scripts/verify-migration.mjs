@@ -11,6 +11,7 @@
 
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { satisfies } from "semver";
 
 const quick = process.argv.includes("--quick");
 const results = [];
@@ -101,13 +102,29 @@ gate("@opennextjs/cloudflare + wrangler installed", () => {
   return { ok: missing.length === 0, detail: `missing: ${missing.join(", ")}` };
 });
 
-gate("next satisfies the adapter peer floor (>=16.2.11, <16.3)", () => {
+/**
+ * The range is read from the adapter rather than written down here.
+ *
+ * This gate used to hardcode ">=16.2.11 <16.3", which is a copy of something
+ * the adapter already declares, and a copy goes stale on its own. It did:
+ * @opennextjs/cloudflare 1.20.3 re-pinned its v16 floor at exactly 16.3.3 and
+ * dropped 16.2.x, so the gate ended up demanding a version the installed
+ * adapter excludes, and failed on a pairing that is in fact correct. Asking the
+ * adapter what it supports cannot drift from what the adapter supports.
+ */
+gate("next satisfies the adapter's declared peer range", () => {
+  const range = JSON.parse(
+    readFileSync("node_modules/@opennextjs/cloudflare/package.json", "utf8")
+  ).peerDependencies?.next;
+  if (!range) {
+    return { ok: false, detail: "adapter declares no next peer dependency" };
+  }
+
   const v = JSON.parse(
     readFileSync("node_modules/next/package.json", "utf8")
   ).version;
-  const [maj, min, patch] = v.split(".").map(Number);
-  const ok = maj === 16 && min === 2 && patch >= 11;
-  return { ok, detail: `next@${v}` };
+  const ok = satisfies(v, range);
+  return { ok, detail: `next@${v} vs adapter's "${range}"` };
 });
 
 gate("prisma client is per-request, not cached on globalThis", () => {
@@ -602,7 +619,10 @@ gate("cross-creator writes are audited", () => {
   const scope = readFileSync("lib/tenancy/platform-scope.ts", "utf8");
   const fn = /export async function assumeWorkspace[\s\S]*?\n\}/.exec(scope)?.[0];
   if (!fn) return { ok: false, detail: "no assumeWorkspace" };
-  if (!/requirePlatformScope\("ADMIN"\)/.test(fn)) {
+  // Any further arguments are allowed. The property is that the minimum tier is
+  // ADMIN, and matching the call verbatim also asserted its arity, so adding the
+  // optional known-userId parameter read as a lost audit.
+  if (!/requirePlatformScope\(\s*"ADMIN"\s*[,)]/.test(fn)) {
     return { ok: false, detail: "assuming a workspace does not require ADMIN" };
   }
   if (!/recordAdminAccess\(/.test(fn)) {
