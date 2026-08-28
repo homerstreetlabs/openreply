@@ -2,7 +2,7 @@ import NextAuth, { type NextAuthConfig } from "next-auth";
 import Nodemailer from "next-auth/providers/nodemailer";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/db/client";
-import { ensureWorkspaceForUser } from "@/lib/workspace";
+import { provisionWorkspaceForSignIn } from "@/lib/workspace";
 import { sendEmail, RecipientSuppressedError as TransportSuppressed } from "@/lib/email/send";
 
 type AdapterPrismaClient = Parameters<typeof PrismaAdapter>[0];
@@ -62,7 +62,16 @@ export const authConfig = {
   events: {
     async createUser({ user }) {
       if (user.id) {
-        await ensureWorkspaceForUser(user.id, user.email);
+        await provisionWorkspaceForSignIn(user.id, user.email);
+      }
+    },
+    // Accepting pending invitations belongs here rather than on the render
+    // path, where it cost every dashboard view a query that almost always
+    // matches nothing. See provisionWorkspaceForSignIn for the regression this
+    // accepts and why the explicit accept route covers it.
+    async signIn({ user }) {
+      if (user.id) {
+        await provisionWorkspaceForSignIn(user.id, user.email);
       }
     },
   },

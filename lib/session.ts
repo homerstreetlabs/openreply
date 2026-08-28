@@ -25,7 +25,7 @@
 
 import { cache } from "react";
 import { auth } from "@/lib/auth";
-import { ensureWorkspaceForUser, getPrimaryWorkspace } from "@/lib/workspace";
+import { ensureWorkspaceForUser, getWorkspaceForUser } from "@/lib/workspace";
 
 export const getSession = cache(async () => auth());
 
@@ -52,7 +52,7 @@ export const getSessionScope = cache(async (): Promise<SessionScope | null> => {
   const userId = session?.user?.id;
   if (!userId) return null;
 
-  const workspace = await getPrimaryWorkspace(userId);
+  const workspace = await getWorkspaceForUser(userId);
   if (workspace) return { userId, workspaceId: workspace.id };
 
   const created = await ensureWorkspaceForUser(userId, session?.user?.email);
