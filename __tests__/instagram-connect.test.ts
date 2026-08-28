@@ -5,6 +5,8 @@ vi.stubEnv("INSTAGRAM_APP_SECRET", "secret_1");
 vi.stubEnv("ENCRYPTION_KEY", "0".repeat(64));
 
 import { instagramAdapter } from "../lib/platforms/instagram";
+import { ADAPTERS } from "../lib/platforms/registry";
+import type { Platform } from "../lib/platforms/types";
 
 /**
  * A connected account went dead overnight in production. Meta reported
@@ -41,7 +43,13 @@ describe("instagram connect", () => {
     return calls;
   }
 
-  function json(body: unknown, ok = true) {
+  /** The three envelopes this flow returns, in the order the calls happen. */
+  type GraphBody =
+    | { access_token: string; user_id?: number | string; expires_in?: number }
+    | { id: string; user_id: string; username: string }
+    | { error: { message: string } };
+
+  function json(body: GraphBody, ok = true) {
     return Promise.resolve({
       ok,
       status: ok ? 200 : 400,
@@ -102,4 +110,58 @@ describe("instagram connect", () => {
       )
     ).rejects.toThrow();
   });
+});
+
+/**
+ * The second half of the same outage. Fleet reported "not receiving webhooks"
+ * because nothing ever asked Meta to deliver them: the subscribe call existed
+ * but had no callers, so the column kept its `false` default.
+ */
+describe("event subscription", () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("subscribes the Instagram account to comments and messages", async () => {
+    const seen: { url: string; body: unknown }[] = [];
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push({ url: String(input), body: init?.body });
+      return {
+        ok: true,
+        status: 200,
+        url: String(input),
+        json: () => Promise.resolve({ success: true }),
+      } as Response;
+    }) as typeof fetch;
+
+    const subscribed = await instagramAdapter.subscribeToEvents!(
+      "TOKEN",
+      "17841400000000000"
+    );
+
+    expect(subscribed).toBe(true);
+    expect(seen[0].url).toContain("/17841400000000000/subscribed_apps");
+    expect(String(seen[0].body)).toContain("comments");
+    expect(String(seen[0].body)).toContain("messages");
+  });
+
+  /**
+   * YouTube is poll-only and TikTok registers one app-level webhook, so neither
+   * has an account to subscribe. Absent rather than a method returning false,
+   * so the callback skips them instead of recording a failure.
+   */
+  it.each(["YOUTUBE", "TIKTOK"] as Platform[])(
+    "%s has nothing to subscribe",
+    (platform) => {
+      expect(ADAPTERS[platform].subscribeToEvents).toBeUndefined();
+    }
+  );
+
+  it.each(["INSTAGRAM", "FACEBOOK"] as Platform[])(
+    "%s can be subscribed",
+    (platform) => {
+      expect(ADAPTERS[platform].subscribeToEvents).toBeTypeOf("function");
+    }
+  );
 });
