@@ -12,19 +12,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
-    workspaceMember: { findFirst: vi.fn() },
-    workspaceInvitation: { findMany: vi.fn() },
+    user: { findUnique: vi.fn() },
+    workspaceMember: { findFirst: vi.fn(), upsert: vi.fn() },
+    invitation: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+    platformGrant: { findFirst: vi.fn() },
     workspace: { create: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 
 vi.mock("@/lib/db/client", () => ({ prisma: mockPrisma }));
 
-import {
-  ensureWorkspaceForUser,
-  getWorkspaceForUser,
-  provisionWorkspaceForSignIn,
-} from "../lib/workspace";
+import { ensureWorkspaceForUser, getWorkspaceForUser } from "../lib/workspace";
+import { settleAdmission } from "../lib/access/admission";
 
 const membership = {
   workspace: { id: "ws_1", name: "Creator" },
@@ -34,8 +34,18 @@ const membership = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.workspaceMember.findFirst.mockResolvedValue(membership);
-  mockPrisma.workspaceInvitation.findMany.mockResolvedValue([]);
+  mockPrisma.invitation.findMany.mockResolvedValue([]);
   mockPrisma.workspace.create.mockResolvedValue({ id: "ws_new", name: "New" });
+  mockPrisma.invitation.findFirst.mockResolvedValue(null);
+  mockPrisma.platformGrant.findFirst.mockResolvedValue(null);
+  mockPrisma.$transaction.mockResolvedValue([]);
+  // An established creator, which is the case that reaches the provisioning
+  // half of settleAdmission at all.
+  mockPrisma.user.findUnique.mockResolvedValue({
+    id: "user_1",
+    status: "ACTIVE",
+    platformGrants: [],
+  });
 });
 
 describe("reading a workspace", () => {
@@ -44,7 +54,7 @@ describe("reading a workspace", () => {
 
     expect(workspace).toEqual(membership.workspace);
     expect(mockPrisma.workspace.create).not.toHaveBeenCalled();
-    expect(mockPrisma.workspaceInvitation.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.invitation.findMany).not.toHaveBeenCalled();
   });
 
   it("reports no workspace rather than creating one", async () => {
@@ -59,7 +69,7 @@ describe("ensuring a workspace", () => {
   it("no longer sweeps invitations, so a render cannot pay for that query", async () => {
     await ensureWorkspaceForUser("user_1", "creator@example.com");
 
-    expect(mockPrisma.workspaceInvitation.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.invitation.findMany).not.toHaveBeenCalled();
   });
 
   it("still creates one for a user who has none", async () => {
@@ -74,9 +84,9 @@ describe("ensuring a workspace", () => {
 
 describe("provisioning at sign-in", () => {
   it("sweeps pending invitations, which is where that cost now lives", async () => {
-    await provisionWorkspaceForSignIn("user_1", "creator@example.com");
+    await settleAdmission("user_1", "creator@example.com");
 
-    expect(mockPrisma.workspaceInvitation.findMany).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.invitation.findMany).toHaveBeenCalledTimes(1);
   });
 
   /**
@@ -84,9 +94,9 @@ describe("provisioning at sign-in", () => {
    * as well, and `getWorkspaceMembership` sorts oldest first, so the personal
    * one would win and the invitation would look like it did nothing.
    */
-  it("accepts the invitation before deciding the user needs a workspace", async () => {
+  it("accepts invitations before deciding the user needs a workspace", async () => {
     const order: string[] = [];
-    mockPrisma.workspaceInvitation.findMany.mockImplementation(async () => {
+    mockPrisma.invitation.findMany.mockImplementation(async () => {
       order.push("sweep");
       return [];
     });
@@ -95,14 +105,48 @@ describe("provisioning at sign-in", () => {
       return membership;
     });
 
-    await provisionWorkspaceForSignIn("user_1", "creator@example.com");
+    await settleAdmission("user_1", "creator@example.com");
 
     expect(order).toEqual(["sweep", "read membership"]);
   });
 
-  it("skips the sweep entirely when there is no address to match", async () => {
-    await provisionWorkspaceForSignIn("user_1", null);
+  /**
+   * A person invited to two workspaces used to join one and then resolve as an
+   * existing user on their next sign-in, so the second invitation could never
+   * be accepted.
+   */
+  it("accepts every pending invitation, not just the first", async () => {
+    mockPrisma.invitation.findMany.mockResolvedValue([
+      { id: "inv_1", workspaceId: "ws_a", role: "MEMBER" },
+      { id: "inv_2", workspaceId: "ws_b", role: "ADMIN" },
+    ]);
 
-    expect(mockPrisma.workspaceInvitation.findMany).not.toHaveBeenCalled();
+    await settleAdmission("user_1", "creator@example.com");
+
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips the sweep entirely when there is no address to match", async () => {
+    await settleAdmission("user_1", null);
+
+    expect(mockPrisma.invitation.findMany).not.toHaveBeenCalled();
+  });
+
+  /**
+   * An operator with a personal workspace shows up in fleet counts and account
+   * lists as a creator who does not exist.
+   */
+  it("gives a platform admin no workspace at all", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: "user_admin",
+      status: "ACTIVE",
+      platformGrants: [{ id: "grant_1" }],
+    });
+    mockPrisma.workspaceMember.findFirst.mockResolvedValue(null);
+
+    await settleAdmission("user_admin", "admin@openreply.test");
+
+    expect(mockPrisma.workspace.create).not.toHaveBeenCalled();
+    expect(mockPrisma.invitation.findMany).not.toHaveBeenCalled();
   });
 });

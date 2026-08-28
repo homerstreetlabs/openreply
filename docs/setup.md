@@ -198,7 +198,7 @@ In the Instagram product open Set up Instagram business login, then Business log
 https://openreply-web.your-subdomain.workers.dev/api/connect/instagram/callback
 ```
 
-No trailing slash. The older `/api/instagram/callback` still works and is worth keeping listed alongside it until you have confirmed the new one, because this is a setting a human edits and a wrong one fails after the creator has already granted consent. If this is missing or wrong, connecting an account fails with a redirect_uri mismatch. You can register more than one, which is useful if you change domains later. Keep the old and new both listed.
+No trailing slash. This is the only callback the app uses; the older `/api/instagram/callback` has been removed, because it was a second connect path that skipped capability negotiation, so accounts that came through it had an empty granted-capability set. Remove it from the app dashboard once you have confirmed the URL above works. If this is missing or wrong, connecting an account fails with a redirect_uri mismatch after the creator has already granted consent. You can register more than one, which is useful if you change domains later.
 
 You do not need the "Embed URL" that Meta shows here. OpenReply builds its own login URL, and users connect by opening Settings and clicking Connect Instagram.
 
@@ -534,7 +534,9 @@ Everything above runs OpenReply for accounts you own. This section is for hostin
 
 Cross-creator access is deliberately not workspace membership. A platform admin is not a member of every workspace, because membership is what a creator sees in their own member list, and an operator appearing there would be alarming and wrong. Access comes from a `PlatformGrant` row instead, so both the standing permission and each use of it are recorded.
 
-There is no UI for issuing the first grant. Sign in once so your `User` row exists, then insert it directly:
+Registration is invitation-only, so a fresh install has nobody who can send the first invitation. Set `BOOTSTRAP_ADMIN_EMAILS` to your address, sign in, then open **Users** and grant yourself `ADMIN`. The variable only applies while `PlatformGrant` is completely empty, so it disarms itself the moment that first grant exists and leaving it set cannot become a standing backdoor.
+
+After that, every grant, revoke and suspend happens on the Users page, and each one is recorded in `AdminAccessLog`. The SQL below is the escape hatch for an install where you cannot sign in at all:
 
 ```sql
 INSERT INTO "PlatformGrant" (id, "userId", tier, "grantedByUserId", reason)

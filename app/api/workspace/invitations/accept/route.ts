@@ -1,7 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/db/client";
-import { normalizeInvitationEmail } from "@/lib/workspace-invitations";
+import { acceptInvitation, type AcceptFailure } from "@/lib/invitations";
+
+const acceptSchema = z.object({ token: z.string().min(1) });
+
+/**
+ * Accepting a workspace invitation, delegated.
+ *
+ * This route used to re-implement the accept path against its own table,
+ * including its own expiry and email checks. There is one accept path now, and
+ * `acceptInvitation` owns it for both kinds.
+ */
+const STATUS: Record<AcceptFailure, number> = {
+  not_found: 404,
+  already_accepted: 409,
+  expired: 410,
+  wrong_email: 403,
+  workspace_gone: 410,
+};
+
+const MESSAGE: Record<AcceptFailure, string> = {
+  not_found: "Invitation is no longer available",
+  already_accepted: "Invitation has already been used",
+  expired: "Invitation has expired",
+  wrong_email: "This invitation is for a different email",
+  workspace_gone: "That workspace no longer exists",
+};
 
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -12,70 +37,29 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const body = await request.json().catch(() => ({}));
-  const token = typeof body.token === "string" ? body.token : null;
-  if (!token) {
+  const parsed = acceptSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
     return NextResponse.json(
       { success: false, error: "Missing invitation token" },
       { status: 400 }
     );
   }
 
-  const invitation = await prisma.workspaceInvitation.findUnique({
-    where: { token },
-    include: { workspace: { select: { name: true } } },
+  const result = await acceptInvitation({
+    token: parsed.data.token,
+    userId: session.user.id,
+    userEmail: session.user.email,
   });
-  if (!invitation || invitation.status !== "PENDING") {
+
+  if (!result.ok) {
     return NextResponse.json(
-      { success: false, error: "Invitation is no longer available" },
-      { status: 404 }
+      { success: false, error: MESSAGE[result.reason] },
+      { status: STATUS[result.reason] }
     );
   }
-
-  if (invitation.expiresAt <= new Date()) {
-    await prisma.workspaceInvitation.update({
-      where: { id: invitation.id },
-      data: { status: "EXPIRED" },
-    });
-    return NextResponse.json(
-      { success: false, error: "Invitation has expired" },
-      { status: 410 }
-    );
-  }
-
-  if (normalizeInvitationEmail(session.user.email) !== invitation.email) {
-    return NextResponse.json(
-      { success: false, error: "This invitation is for a different email" },
-      { status: 403 }
-    );
-  }
-
-  await prisma.$transaction([
-    prisma.workspaceMember.upsert({
-      where: {
-        workspaceId_userId: {
-          workspaceId: invitation.workspaceId,
-          userId: session.user.id,
-        },
-      },
-      create: {
-        workspaceId: invitation.workspaceId,
-        userId: session.user.id,
-        role: invitation.role,
-      },
-      update: { role: invitation.role },
-    }),
-    prisma.workspaceInvitation.update({
-      where: { id: invitation.id },
-      data: { status: "ACCEPTED", acceptedAt: new Date() },
-    }),
-  ]);
 
   return NextResponse.json({
     success: true,
-    data: {
-      workspaceName: invitation.workspace.name,
-    },
+    data: { workspaceName: result.workspaceName },
   });
 }
-

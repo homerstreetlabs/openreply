@@ -1,13 +1,18 @@
 "use client";
 
 import type { Platform } from "@/app/generated/prisma/client";
-import { accountLabel } from "@/lib/campaigns/options";
 
+/**
+ * What a picker needs to name an account. Structurally the directory's
+ * `ConnectedAccountRef`, so a list fetched from `/api/accounts` drops straight
+ * in and the label is not re-derived here.
+ */
 export interface AccountOption {
   id: string;
+  /** Already `@`-prefixed where the platform uses handles. */
+  label: string;
   username: string;
-  instagramId: string;
-  name?: string | null;
+  externalId: string;
   /** Drives which campaign options are offered, via the adapter's capabilities. */
   platform: Platform;
 }
@@ -25,7 +30,7 @@ export default function AccountSelect({
   value,
   onChange,
   includeAll = true,
-  label = "Instagram account",
+  label = "Account",
 }: AccountSelectProps) {
   return (
     <label className="flex flex-col gap-2 text-sm">
@@ -40,7 +45,7 @@ export default function AccountSelect({
         {includeAll && <option value="all">All accounts</option>}
         {accounts.map((account) => (
           <option key={account.id} value={account.id}>
-            {accountLabel(account.platform, account.username)}
+            {account.label}
           </option>
         ))}
       </select>

@@ -14,20 +14,32 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { getMetaGraphApiVersion } from "@/lib/env";
 import type {
+  ConversationsCapability,
   DiscoveredComment,
   CommentEvent,
   Discovery,
+  InsightsCapability,
   LinkButton,
   MessageEvent,
   MessagingCapability,
+  Metric,
+  MetricValues,
   PlatformAdapter,
   PlatformEvent,
   PostSummary,
   PostbackEvent,
   ReplyEligibility,
+  ReportNotice,
   SendResult,
 } from "./types";
-import { PLATFORM_CAPABILITIES } from "./types";
+import { PLATFORM_CAPABILITIES, PLATFORM_METRICS } from "./types";
+import { mapWithConcurrency } from "./concurrency";
+
+/**
+ * Four at a time, not eight. The Conversations and insights edges share a
+ * 2-calls-per-second-per-Page ceiling, the tightest limit Meta enforces.
+ */
+const FB_INSIGHTS_CONCURRENCY = 4;
 import {
   FACEBOOK_SCOPES,
   canOperatePage,
@@ -308,10 +320,245 @@ const messaging: MessagingCapability = {
   },
 };
 
+const FB_LABELS = {
+  VIEWS: "Video views",
+  // Meta's own wording in Page Insights. "Reach" is the Instagram term.
+  REACH: "People reached",
+  LIKES: "Reactions",
+  COMMENTS: "Comments",
+  SAVES: "Saved",
+  SHARES: "Shares",
+} satisfies Record<Metric, string>;
+
+const FB_RANK = {
+  VIEWS: 1,
+  REACH: 2,
+  LIKES: 3,
+  COMMENTS: 4,
+  SHARES: 5,
+  SAVES: 6,
+} satisfies Record<Metric, number>;
+
+interface PagePost {
+  id: string;
+  message?: string;
+  permalink_url?: string;
+  full_picture?: string;
+  created_time: string;
+  reactions?: { summary?: { total_count?: number } };
+  comments?: { summary?: { total_count?: number } };
+  shares?: { count?: number };
+}
+
+/**
+ * Reach and video views are the only two figures that need the insights edge.
+ * Reactions, comments and shares come back with the post itself, so a Page
+ * whose token cannot read insights still gets a useful report.
+ */
+async function pagePostInsights(
+  accessToken: string,
+  postId: string
+): Promise<{ reach: number | null; views: number | null }> {
+  const url = new URL(`${graphBase()}/${postId}/insights`);
+  url.searchParams.set("metric", "post_impressions_unique,post_video_views");
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(url.toString());
+  const data = await handle<{
+    data?: Array<{ name: string; values?: Array<{ value?: number }> }>;
+  }>(response);
+
+  let reach: number | null = null;
+  let views: number | null = null;
+  for (const entry of data.data ?? []) {
+    const value = entry.values?.[0]?.value ?? null;
+    if (entry.name === "post_impressions_unique") reach = value;
+    if (entry.name === "post_video_views") views = value;
+  }
+  return { reach, views };
+}
+
+const insights: InsightsCapability = {
+  metrics: PLATFORM_METRICS.FACEBOOK,
+
+  async buildReport(accessToken, pageId, { limit }) {
+    const url = new URL(`${graphBase()}/${pageId}/posts`);
+    url.searchParams.set(
+      "fields",
+      "message,permalink_url,full_picture,created_time,reactions.summary(true).limit(0),comments.summary(true).limit(0),shares"
+    );
+    url.searchParams.set("limit", String(limit));
+    url.searchParams.set("access_token", accessToken);
+
+    const response = await fetch(url.toString());
+    const page = await handle<{ data?: PagePost[] }>(response);
+    const posts = page.data ?? [];
+
+    let insightsDenied = false;
+    const perPost = await mapWithConcurrency(posts, FB_INSIGHTS_CONCURRENCY, async (post) => {
+      try {
+        return await pagePostInsights(accessToken, post.id);
+      } catch {
+        // The insights edge refuses per Page, not per post, so one refusal
+        // means the whole column is unavailable rather than one cell.
+        insightsDenied = true;
+        return null;
+      }
+    });
+
+    const granted: Metric[] = insightsDenied
+      ? ["LIKES", "COMMENTS", "SHARES"]
+      : [...PLATFORM_METRICS.FACEBOOK];
+
+    const rows = posts.map((post, i) => {
+      const extra = perPost[i];
+      const values: MetricValues = {
+        LIKES: post.reactions?.summary?.total_count ?? 0,
+        COMMENTS: post.comments?.summary?.total_count ?? 0,
+        SHARES: post.shares?.count ?? 0,
+      };
+      if (extra?.reach !== null && extra?.reach !== undefined) values.REACH = extra.reach;
+      if (extra?.views !== null && extra?.views !== undefined) values.VIEWS = extra.views;
+
+      return {
+        post: {
+          id: post.id,
+          caption: post.message ?? null,
+          permalink: post.permalink_url ?? null,
+          thumbnailUrl: post.full_picture ?? null,
+          videoUrl: null,
+          mediaType: "POST",
+          timestamp: post.created_time,
+          isReel: false,
+        },
+        values,
+      };
+    });
+
+    const notices: ReportNotice[] = [];
+    if (insightsDenied) {
+      notices.push({
+        kind: "permission",
+        message:
+          "Reach and video views need the read_insights permission on this Page. Reconnect it to grant them.",
+      });
+    }
+
+    return {
+      tiles: granted.map((metric) => ({
+        metric,
+        label: FB_LABELS[metric],
+        value: rows.reduce<number | null>(
+          (sum, row) =>
+            row.values[metric] === undefined ? sum : (sum ?? 0) + row.values[metric],
+          null
+        ),
+        rank: FB_RANK[metric],
+      })),
+      columns: granted.map((metric) => ({ metric, label: FB_LABELS[metric] })),
+      rows,
+      notices,
+    };
+  },
+
+  async fetchAudience(accessToken, pageId) {
+    const url = new URL(`${graphBase()}/${pageId}`);
+    url.searchParams.set("fields", "followers_count");
+    url.searchParams.set("access_token", accessToken);
+    const data = await handle<{ followers_count?: number }>(await fetch(url.toString()));
+    return { noun: "followers", current: data.followers_count ?? null, history: [] };
+  },
+};
+
+/**
+ * The Page Conversations API, at 2 calls a second per Page — the tightest
+ * limit on the platform. `platform=messenger` is what separates it from the
+ * Instagram conversations that share the endpoint shape.
+ */
+const conversations: ConversationsCapability = {
+  async listThreads(accessToken, pageId, limit) {
+    const url = new URL(`${graphBase()}/${pageId}/conversations`);
+    url.searchParams.set("platform", "messenger");
+    url.searchParams.set(
+      "fields",
+      "participants,updated_time,messages.limit(1){message,from,created_time}"
+    );
+    url.searchParams.set("limit", String(limit));
+    url.searchParams.set("access_token", accessToken);
+
+    const data = await handle<{
+      data?: Array<{
+        id: string;
+        updated_time?: string;
+        participants?: { data?: Array<{ id: string; name?: string; username?: string }> };
+        messages?: {
+          data?: Array<{ message?: string; from?: { id: string }; created_time?: string }>;
+        };
+      }>;
+    }>(await fetch(url.toString()));
+
+    return (data.data ?? []).map((thread) => {
+      const participants = thread.participants?.data ?? [];
+      const contact = participants.find((p) => p.id !== pageId) ?? participants[0] ?? null;
+      const last = thread.messages?.data?.[0] ?? null;
+      return {
+        id: thread.id,
+        contact: {
+          id: contact?.id ?? "",
+          // A Page conversation identifies people by name; there is no handle.
+          username: contact?.username ?? contact?.name ?? null,
+        },
+        updatedAt: thread.updated_time ?? null,
+        lastMessage: last
+          ? {
+              text: last.message ?? "",
+              fromMe: last.from?.id === pageId,
+              at: last.created_time ?? null,
+            }
+          : null,
+      };
+    });
+  },
+
+  async readThread(accessToken, pageId, threadId) {
+    const url = new URL(`${graphBase()}/${threadId}`);
+    url.searchParams.set("fields", "messages.limit(50){message,from,created_time}");
+    url.searchParams.set("access_token", accessToken);
+
+    const data = await handle<{
+      messages?: {
+        data?: Array<{
+          id: string;
+          message?: string;
+          from?: { id: string; name?: string };
+          created_time?: string;
+        }>;
+      };
+    }>(await fetch(url.toString()));
+
+    // Meta returns newest first; the thread view reads oldest to newest.
+    return (data.messages?.data ?? [])
+      .map((m) => ({
+        id: m.id,
+        text: m.message ?? "",
+        fromMe: m.from?.id === pageId,
+        fromUsername: m.from?.name ?? null,
+        at: m.created_time ?? null,
+      }))
+      .reverse();
+  },
+
+  async reply(accessToken, pageId, recipientId, text) {
+    return messaging.sendDirectMessage(accessToken, pageId, recipientId, text);
+  },
+};
+
 export const facebookAdapter: PlatformAdapter = {
   platform: "FACEBOOK",
   capabilities: PLATFORM_CAPABILITIES.FACEBOOK,
   discovery,
+  insights,
+  conversations,
 
   /**
    * Page tokens derived from a long-lived user token do not expire. Nothing to

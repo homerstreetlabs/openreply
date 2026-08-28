@@ -1,10 +1,8 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import type { AccountOption } from "@/components/account-select";
 import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
 import type { Platform } from "@/app/generated/prisma/client";
-import { accountLabel } from "@/lib/campaigns/options";
 
 /**
  * What to call a connected account in copy aimed at the person who owns it.
@@ -29,20 +27,15 @@ interface SettingsData {
   workspace: {
     name: string;
     dmsSentThisPeriod: number;
-  };
-  instagramAccount: {
+  } | null;
+  accounts: Array<{
     id: string;
-    username: string;
-    instagramId: string;
+    platform: Platform;
+    /** Already `@`-prefixed where the platform uses handles. */
+    label: string;
     tokenExpiresAt: string | null;
     webhookSubscribed: boolean;
-  } | null;
-  instagramAccounts: Array<
-    AccountOption & {
-      tokenExpiresAt: string | null;
-      webhookSubscribed: boolean;
-    }
-  >;
+  }>;
 }
 
 interface WorkspaceMembersData {
@@ -83,12 +76,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/dashboard/stats").then((res) => res.json()),
+      fetch("/api/workspace/summary").then((res) => res.json()),
       fetch("/api/workspace/members").then((res) => res.json()),
       fetch("/api/platforms").then((res) => res.json()),
     ])
-      .then(([statsPayload, membersPayload, platformsPayload]) => {
-        if (statsPayload.success) setData(statsPayload.data);
+      .then(([summaryPayload, membersPayload, platformsPayload]) => {
+        if (summaryPayload.success) setData(summaryPayload.data);
         if (membersPayload.success) setMembersData(membersPayload.data);
         if (platformsPayload.success) setPlatforms(platformsPayload.data.platforms);
       })
@@ -103,23 +96,23 @@ export default function SettingsPage() {
 
   async function disconnectAccount(account: {
     id: string;
-    username: string;
+    label: string;
     platform: Platform;
   }) {
-    const label = ACCOUNT_NOUN[account.platform];
+    const noun = ACCOUNT_NOUN[account.platform];
     if (
       !confirm(
-        `Disconnect ${label} ${account.username}? Campaigns for it will stop responding to comments.`
+        `Disconnect ${noun} ${account.label}? Campaigns for it will stop responding to comments.`
       )
     ) {
       return;
     }
 
     setBusy(`disconnect:${account.id}`);
-    await fetch("/api/instagram/disconnect", {
+    await fetch("/api/accounts/disconnect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instagramAccountId: account.id }),
+      body: JSON.stringify({ accountId: account.id }),
     });
     window.location.reload();
   }
@@ -158,7 +151,7 @@ export default function SettingsPage() {
     return <div className="panel rounded p-8 h-64" />;
   }
 
-  const accounts = data?.instagramAccounts ?? [];
+  const accounts = data?.accounts ?? [];
   const canManageMembers =
     membersData?.currentUserRole === "OWNER" ||
     membersData?.currentUserRole === "ADMIN";
@@ -220,7 +213,7 @@ export default function SettingsPage() {
               >
                 <div>
                   <p className="text-sm font-semibold text-foreground">
-                    {accountLabel(account.platform, account.username)}
+                    {account.label}
                   </p>
                   <p className="mt-1 text-xs text-muted">
                     Token expires{" "}
@@ -395,7 +388,7 @@ export default function SettingsPage() {
             </p>
           </div>
           <span className="text-sm font-semibold text-foreground">
-            {data?.workspace.dmsSentThisPeriod ?? 0}
+            {data?.workspace?.dmsSentThisPeriod ?? 0}
           </span>
         </div>
       </section>

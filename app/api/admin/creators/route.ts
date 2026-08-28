@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { inviteCreator } from "@/lib/creators/invitations";
+import { inviteCreator } from "@/lib/invitations";
 import {
   PlatformAccessError,
   recordAdminAccess,
@@ -13,19 +13,20 @@ export const dynamic = "force-dynamic";
 
 const inviteSchema = z.object({
   email: z.string().email(),
-  creatorName: z.string().min(1).max(120).optional(),
+  invitedName: z.string().min(1).max(120).optional(),
 });
 
 export async function GET() {
   try {
     await requirePlatformScope("SUPPORT_READ");
-    const invitations = await prisma.creatorInvitation.findMany({
+    const invitations = await prisma.invitation.findMany({
+      where: { kind: "CREATOR" },
       orderBy: { createdAt: "desc" },
       take: 200,
       select: {
         id: true,
         email: true,
-        creatorName: true,
+        invitedName: true,
         status: true,
         deliveredAt: true,
         deliveryError: true,
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     const result = await inviteCreator({
       email: parsed.data.email,
-      creatorName: parsed.data.creatorName ?? null,
+      invitedName: parsed.data.invitedName ?? null,
       invitedByUserId: scope.userId,
       inviterName: inviter?.name ?? inviter?.email ?? null,
     });

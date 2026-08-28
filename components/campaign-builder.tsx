@@ -53,7 +53,7 @@ interface LoadedCampaign {
   publicReplyMessage: string | null;
   publicReplyMessages: string[];
   isActive: boolean;
-  instagramAccountId: string;
+  accountId: string;
   trackedLinks?: { destinationUrl: string; label?: string | null }[];
 }
 
@@ -220,13 +220,13 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   useEffect(() => {
     if (!selectedAccountId) return;
     let cancelled = false;
-    const cacheKey = `ig-avatar:${selectedAccountId}`;
+    const cacheKey = `avatar:${selectedAccountId}`;
     const cached = readCache<string | null>(cacheKey, 30 * 60 * 1000);
     // Hydrating state from cache is a legitimate effect use here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (cached.data !== null) setAvatarUrl(cached.data);
 
-    const params = new URLSearchParams({ instagramAccountId: selectedAccountId });
+    const params = new URLSearchParams({ accountId: selectedAccountId });
     fetch(`/api/instagram/profile?${params}`)
       .then((r) => r.json())
       .then((d) => {
@@ -245,11 +245,11 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
 
   // Load accounts (both modes need them for the preview username + selector).
   useEffect(() => {
-    fetch("/api/instagram/accounts")
+    fetch("/api/accounts")
       .then((r) => r.json())
       .then((payload) => {
         if (!payload.success) return;
-        const next: AccountOption[] = payload.data.instagramAccounts ?? [];
+        const next: AccountOption[] = payload.data.accounts ?? [];
         setAccounts(next);
         setSelectedAccountId(
           (prev) => prev || payload.data.selectedInstagramAccountId || next[0]?.id || ""
@@ -268,7 +268,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         const c = (payload.data as LoadedCampaign[]).find((x) => x.id === campaignId);
         if (!c) return setNotFound(true);
         setName(c.name);
-        setSelectedAccountId(c.instagramAccountId);
+        setSelectedAccountId(c.accountId);
         setTriggerScope(
           c.matchAnyPost ? "any" : c.pendingNextReel ? "next" : "specific"
         );
@@ -324,7 +324,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         const map: Record<string, string> = {};
         for (const a of payload.data as LoadedCampaign[]) {
           if (!a.postId) continue;
-          if (a.instagramAccountId !== selectedAccountId) continue;
+          if (a.accountId !== selectedAccountId) continue;
           if (mode === "edit" && a.id === campaignId) continue;
           map[a.postId] = a.name;
         }
@@ -423,7 +423,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
 
     const payload = {
       name: name.trim() || `Campaign for @${username}`,
-      instagramAccountId: selectedAccountId,
+      accountId: selectedAccountId,
       postId: triggerScope === "specific" ? postId : null,
       postUrl: triggerScope === "specific" ? postUrl : null,
       matchAnyPost: triggerScope === "any",
@@ -702,7 +702,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
             <div className="rounded-lg border border-border p-2">
               <PostPicker
                 selectedPostId={postId}
-                instagramAccountId={selectedAccountId}
+                accountId={selectedAccountId}
                 usedPostIds={usedPosts}
                 onSelect={handlePostSelect}
               />

@@ -1,135 +1,93 @@
 "use client";
 
 /**
- * Dashboard Home Page
+ * Dashboard — tiles, a seven-day chart, and recent activity.
  *
- * Overview cards, 7-day chart, and recent activity feed.
+ * Everything here spans every connected account on every platform, which is
+ * why the headline is "Replies sent" with a DM / public-reply split beneath it
+ * rather than "DMs Sent". YouTube and TikTok have no messaging API, so a run on
+ * either could never have been a DM, and the old tile counted them as one.
  */
 
 import { useEffect, useState } from "react";
-import AccountSelect, { type AccountOption } from "@/components/account-select";
 import DashboardSkeleton from "@/components/dashboard-skeleton";
 import StatCard from "@/components/stat-card";
 import StatusBadge from "@/components/status-badge";
-
-interface DashboardStats {
-  userName: string | null;
-  contactsCount: number;
-  totalAutomations: number;
-  activeAutomations: number;
-  dmsSentToday: number;
-  dmsSentWeek: number;
-  dmsSentMonth: number;
-  dmsSkippedMonth: number;
-  dmsFailedMonth: number;
-  totalDMs: number;
-  clicksThisMonth: number;
-  totalClicks: number;
-  ctrThisMonth: number;
-  instagramAccounts: AccountOption[];
-  selectedInstagramAccountId: string | null;
-  topKeywords: { keyword: string; count: number }[];
-  dailyDMs: { date: string; count: number }[];
-  recentLogs: Array<{
-    id: string;
-    commenterName: string | null;
-    commentText: string;
-    status: string;
-    createdAt: string;
-    automation: { name: string };
-    instagramAccount?: { username: string };
-  }>;
-}
+import { accountLabel } from "@/lib/campaigns/options";
+import type { DashboardSummary } from "@/app/api/dashboard/summary/route";
+import { runAction } from "@/lib/tracking/activity";
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedAccountId, setSelectedAccountId] = useState("all");
 
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (selectedAccountId !== "all") {
-      params.set("instagramAccountId", selectedAccountId);
-    }
+    const timer = window.setTimeout(() => {
+      fetch("/api/dashboard/summary")
+        .then((response) => response.json())
+        .then((payload) => {
+          if (payload.success) setSummary(payload.data);
+        })
+        .catch(() => setSummary(null))
+        .finally(() => setLoading(false));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
-    fetch(`/api/dashboard/stats${params.size ? `?${params}` : ""}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.success) setStats(data.data);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [selectedAccountId]);
+  if (loading) return <DashboardSkeleton />;
 
-  function handleAccountChange(accountId: string) {
-    setLoading(true);
-    setSelectedAccountId(accountId);
-  }
-
-  if (loading) {
-    return <DashboardSkeleton />;
-  }
-
-  const maxDM = Math.max(...(stats?.dailyDMs.map((d) => d.count) ?? [1]), 1);
-
-  const connectedCount = stats?.instagramAccounts.length ?? 0;
+  const busiestDay = Math.max(...(summary?.dailyRuns.map((day) => day.count) ?? [1]), 1);
 
   return (
     <div className="space-y-8">
-      {/* Greeting header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-            Hello, {stats?.userName ?? "there"}!
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            {connectedCount} connected{" "}
-            {connectedCount === 1 ? "account" : "accounts"}
-            {" · "}
-            {stats?.contactsCount ?? 0}{" "}
-            {stats?.contactsCount === 1 ? "contact" : "contacts"}
-            {" · "}
-            <a href="/logs" className="text-accent hover:underline">
-              See activity
-            </a>
-          </p>
-        </div>
-        {stats && stats.instagramAccounts.length > 1 && (
-          <AccountSelect
-            accounts={stats.instagramAccounts}
-            value={selectedAccountId}
-            onChange={handleAccountChange}
-          />
-        )}
+      <div>
+        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
+          Hello, {summary?.userName ?? "there"}!
+        </h1>
+        <p className="mt-1 text-sm text-muted">
+          {summary?.contactsCount ?? 0}{" "}
+          {summary?.contactsCount === 1 ? "person" : "people"} reached ·{" "}
+          <a href="/activity" className="text-accent hover:underline">
+            See activity
+          </a>
+        </p>
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
-        <StatCard
-          label="Active Campaigns"
-          value={stats?.activeAutomations ?? 0}
-        />
-        <StatCard label="DMs Sent" value={stats?.dmsSentMonth ?? 0} />
-        <StatCard label="Skipped" value={stats?.dmsSkippedMonth ?? 0} />
-        <StatCard label="Failed" value={stats?.dmsFailedMonth ?? 0} />
-        <StatCard label="Clicks" value={stats?.clicksThisMonth ?? 0} />
-        <StatCard label="CTR" value={`${stats?.ctrThisMonth ?? 0}%`} />
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
+        <StatCard label="Active campaigns" value={summary?.activeCampaigns ?? 0} />
+        <StatCard label="Replies sent" value={summary?.repliesSent ?? 0} />
+        <StatCard label="Skipped" value={summary?.skipped ?? 0} />
+        <StatCard label="Failed" value={summary?.failed ?? 0} />
+        <StatCard label="Clicks" value={summary?.clicksThisMonth ?? 0} />
+        <StatCard label="CTR" value={`${summary?.ctrThisMonth ?? 0}%`} />
       </div>
 
-      {/* Chart + Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-6 gap-4 sm:gap-6">
-        {/* 7-Day Chart */}
-        <div className="lg:col-span-3 panel rounded p-4 sm:p-6">
-          <h2 className="text-sm font-semibold text-foreground mb-6">DMs — Last 7 Days</h2>
-          <div className="flex items-end gap-1.5 h-40 sm:gap-2">
-            {stats?.dailyDMs.map((day) => (
-              <div key={day.date} className="min-w-0 flex-1 flex flex-col items-center gap-2">
-                <span className="text-xs text-muted font-medium">{day.count}</span>
+      {/* The split under the headline. Without it "Replies sent" hides that a
+          YouTube public reply and an Instagram DM are different things. */}
+      <p className="-mt-4 text-xs text-muted">
+        This month: {summary?.directMessages ?? 0} direct{" "}
+        {summary?.directMessages === 1 ? "message" : "messages"} and{" "}
+        {summary?.publicReplies ?? 0} public{" "}
+        {summary?.publicReplies === 1 ? "reply" : "replies"}. CTR is clicks against
+        deliveries that carried a tracked link.
+      </p>
+
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-6">
+        <div className="panel rounded p-4 sm:p-6 lg:col-span-3">
+          <h2 className="mb-6 text-sm font-semibold text-foreground">
+            Replies — last 7 days
+          </h2>
+          <div className="flex h-40 items-end gap-1.5 sm:gap-2">
+            {summary?.dailyRuns.map((day) => (
+              <div
+                key={day.date}
+                className="flex min-w-0 flex-1 flex-col items-center gap-2"
+              >
+                <span className="text-xs font-medium text-muted">{day.count}</span>
                 <div
-                  className="w-full rounded-sm bg-accent min-h-[4px]"
-                  style={{ height: `${Math.max((day.count / maxDM) * 100, 4)}%` }}
+                  className="min-h-[4px] w-full rounded-sm bg-accent"
+                  style={{ height: `${Math.max((day.count / busiestDay) * 100, 4)}%` }}
                 />
-                {/* Seven labels share a phone's width, so they must not wrap. */}
                 <span className="w-full truncate text-center text-[10px] text-zinc-500">
                   {day.date}
                 </span>
@@ -138,15 +96,17 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Top Keywords */}
-        <div className="lg:col-span-1 panel rounded p-4 sm:p-6">
-          <h2 className="text-sm font-semibold text-foreground mb-4">Top Keywords</h2>
+        <div className="panel rounded p-4 sm:p-6 lg:col-span-1">
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Top keywords</h2>
           <div className="space-y-3">
-            {stats?.topKeywords.length === 0 && (
-              <p className="text-sm text-muted py-8">No keyword matches yet</p>
+            {summary?.topKeywords.length === 0 && (
+              <p className="py-8 text-sm text-muted">No keyword matches this month</p>
             )}
-            {stats?.topKeywords.map((keyword) => (
-              <div key={keyword.keyword} className="flex items-center justify-between gap-3">
+            {summary?.topKeywords.map((keyword) => (
+              <div
+                key={keyword.keyword}
+                className="flex items-center justify-between gap-3"
+              >
                 <span className="truncate text-sm font-medium text-foreground">
                   {keyword.keyword}
                 </span>
@@ -156,30 +116,31 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Recent Activity */}
-        <div className="lg:col-span-2 panel rounded p-4 sm:p-6">
-          <h2 className="text-sm font-semibold text-foreground mb-4">Recent Activity</h2>
-          <div className="space-y-3 max-h-60 overflow-y-auto">
-            {stats?.recentLogs.length === 0 && (
-              <p className="text-sm text-muted text-center py-8">No activity yet</p>
+        <div className="panel rounded p-4 sm:p-6 lg:col-span-2">
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Recent activity</h2>
+          <div className="max-h-60 space-y-3 overflow-y-auto">
+            {summary?.recentRuns.length === 0 && (
+              <p className="py-8 text-center text-sm text-muted">No activity yet</p>
             )}
-            {stats?.recentLogs.map((log) => (
+            {summary?.recentRuns.map((run) => (
               <div
-                key={log.id}
-                className="flex items-center justify-between gap-3 py-2 border-b border-border last:border-0"
+                key={run.id}
+                className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground truncate">
-                    @{log.commenterName ?? "unknown"}
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {run.counterpartyName ?? "unknown"}
                   </p>
-                  <p className="text-xs text-muted truncate">
-                    {log.instagramAccount
-                      ? `@${log.instagramAccount.username} · `
-                      : ""}
-                    {log.commentText}
+                  <p className="truncate text-xs text-muted">
+                    {accountLabel(
+                      run.connectedAccount.platform,
+                      run.connectedAccount.username
+                    )}
+                    {runAction(run) === "PUBLIC_REPLY" ? " · public reply" : " · DM"} ·{" "}
+                    {run.triggerText}
                   </p>
                 </div>
-                <StatusBadge status={log.status} />
+                <StatusBadge status={run.status} />
               </div>
             ))}
           </div>

@@ -29,12 +29,23 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  /// Whether this person may still obtain a session.
+  ///
+  /// Registration is invitation-only, but an invitation is consumed once and a
+  /// creator who has since connected accounts and run campaigns should not have
+  /// their access hang on a spent row. So admission grandfathers an existing
+  /// ACTIVE user, and revoking that access is this column.
+  ///
+  /// Suspending is deliberately not deleting: PlatformGrant.grantedBy is
+  /// onDelete: Restrict and Workspace cascades, so a delete would either fail
+  /// or take a creator's campaigns with it.
+  status        UserStatus @default(ACTIVE)
+
   accounts          Account[]
   sessions          Session[]
   ownedWorkspaces   Workspace[]       @relation("WorkspaceOwner")
   workspaceMembers  WorkspaceMember[]
-  sentInvitations   WorkspaceInvitation[] @relation("WorkspaceInvitationsSent")
-  sentCreatorInvites CreatorInvitation[]  @relation("CreatorInvitesSent")
+  sentInvitations   Invitation[]      @relation("InvitationsSent")
   platformGrants    PlatformGrant[]      @relation("GrantHolder")
   issuedGrants      PlatformGrant[]      @relation("GrantIssuer")
   adminAccessLogs   AdminAccessLog[]
@@ -93,7 +104,7 @@ model Workspace {
   dmsSentThisPeriod Int      @default(0)
 
   members           WorkspaceMember[]
-  invitations       WorkspaceInvitation[]
+  invitations       Invitation[]
   connectedAccounts ConnectedAccount[]
   campaigns       Campaign[]
   responseRuns            ResponseRun[]
@@ -101,7 +112,6 @@ model Workspace {
   linkClicks        LinkClick[]
   webhookEvents     WebhookEvent[]
   operationalEvents OperationalEvent[]
-  creatorInvitation CreatorInvitation[]
 
   @@index([ownerId])
 }
@@ -118,28 +128,6 @@ model WorkspaceMember {
 
   @@unique([workspaceId, userId])
   @@index([userId])
-}
-
-model WorkspaceInvitation {
-  id              String                    @id @default(cuid())
-  workspaceId     String
-  email           String
-  role            WorkspaceRole             @default(MEMBER)
-  token           String                    @unique
-  status          WorkspaceInvitationStatus @default(PENDING)
-  invitedByUserId String?
-  expiresAt       DateTime
-  acceptedAt      DateTime?
-  createdAt       DateTime                  @default(now())
-  updatedAt       DateTime                  @updatedAt
-
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  invitedBy User?     @relation("WorkspaceInvitationsSent", fields: [invitedByUserId], references: [id], onDelete: SetNull)
-
-  @@unique([workspaceId, email])
-  @@index([email])
-  @@index([workspaceId])
-  @@index([status])
 }
 
 model ConnectedAccount {
@@ -502,47 +490,72 @@ model OperationalEvent {
   @@index([createdAt])
 }
 
-/// An invitation for a UGC creator who has no workspace yet.
+/// One invitation, whoever it is for.
 ///
-/// Deliberately not merged with WorkspaceInvitation. That one adds a person to
-/// a workspace that already exists, so it carries a workspaceId from the start.
-/// This one PROVISIONS a workspace on accept, so it cannot. Merging them behind
-/// a kind enum would mean a nullable workspaceId that is required half the time.
-model CreatorInvitation {
-  id              String                    @id @default(cuid())
-  email           String                    @unique
-  creatorName     String?
-  token           String                    @unique
-  status          WorkspaceInvitationStatus @default(PENDING)
-  invitedByUserId String?
+/// CreatorInvitation and WorkspaceInvitation were the same seven fields twice,
+/// with two accept paths, two delivery-tracking stories and two places the
+/// admission gate had to look. The difference between them is one question:
+/// does accepting create a workspace, or join an existing one.
+///
+/// The objection the split was written to avoid is real and is accepted here: a
+/// nullable `workspaceId` that is required for one kind and forbidden for the
+/// other is weaker than two models that each got it right by construction. What
+/// buys it back is that only two functions ever write this table, and each one
+/// owns one kind, so the invariant lives in `lib/invitations.ts` rather than in
+/// every caller.
+model Invitation {
+  id    String         @id @default(cuid())
+  email String
+  kind  InvitationKind
 
-  /// Null until accepted. Set to the workspace this invitation created.
+  /// Which workspace. Null for a CREATOR invitation until it is accepted,
+  /// because the workspace does not exist until then; always set for MEMBER.
   workspaceId String?
 
-  /// Set when delivery failed, so an admin sees why rather than assuming the
-  /// creator ignored it. Cloudflare suppresses an address account-wide after a
-  /// spam complaint, which is otherwise a silent dead end.
-  deliveryError String?
+  /// The role a MEMBER invitation confers. Null for CREATOR, who always owns
+  /// the workspace their acceptance creates.
+  role WorkspaceRole?
+
+  /// What to call them in the email, when the inviter supplied a name.
+  invitedName String?
+
+  token           String                    @unique
+  status          InvitationStatus @default(PENDING)
+  invitedByUserId String?
+
+  /// Delivery is tracked for both kinds now. An address suppressed by the mail
+  /// provider looks exactly like a creator who ignored the invitation unless
+  /// the failure is recorded, and that was only ever captured for creators.
   deliveredAt   DateTime?
+  deliveryError String?
 
   expiresAt  DateTime
   acceptedAt DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  invitedBy User?      @relation("CreatorInvitesSent", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  invitedBy User?      @relation("InvitationsSent", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  /// SetNull, not Cascade. An accepted CREATOR invitation is the record that a
+  /// person was let in, and deleting the workspace should not erase it. The
+  /// cost is that a MEMBER invitation can outlive its workspace, so the accept
+  /// path refuses one whose workspaceId has gone null.
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
-  @@index([status])
+  /// Postgres treats NULLs as distinct, so this does not stop two CREATOR
+  /// invitations for one address. A partial unique index in the migration does
+  /// that, which is why `inviteCreator` reads before it writes rather than
+  /// upserting on a constraint Prisma cannot target.
+  @@unique([email, kind, workspaceId])
   @@index([email])
+  @@index([status])
+  @@index([workspaceId])
 }
 
-/// Cross-creator access, as an auditable row rather than a column.
-///
-/// A column answers "is this person an admin" and nothing else. It cannot say
-/// who granted it, when it expires, or who could read a given creator's data
-/// last March. For a system holding other people's social accounts, the
-/// interesting question is almost always historical.
+enum InvitationKind {
+  CREATOR
+  MEMBER
+}
+
 model PlatformGrant {
   id     String            @id @default(cuid())
   userId String
@@ -709,13 +722,18 @@ enum Platform {
   TIKTOK
 }
 
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 enum WorkspaceRole {
   OWNER
   ADMIN
   MEMBER
 }
 
-enum WorkspaceInvitationStatus {
+enum InvitationStatus {
   PENDING
   ACCEPTED
   REVOKED

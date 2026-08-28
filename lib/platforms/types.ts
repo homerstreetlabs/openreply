@@ -416,6 +416,217 @@ export interface MessagingCapability {
   ): Promise<boolean | null>;
 }
 
+// ─── Reading ─────────────────────────────────────────────────────────────────
+
+/**
+ * A quantity a platform reports about a post.
+ *
+ * A closed union, not `Record<string, number>`. Closed is what lets the
+ * dashboard sum, sort and compare across accounts; open would make every
+ * consumer re-learn each vendor's vocabulary, which is the leak this replaces.
+ * A fifth platform either maps onto a member here or adds one, and adding one
+ * forces every adapter to consider it.
+ */
+export type Metric =
+  | "VIEWS"
+  | "REACH"
+  | "LIKES"
+  | "COMMENTS"
+  | "SAVES"
+  | "SHARES";
+
+/**
+ * The per-platform ceiling. What an account actually reports is a subset, never
+ * a superset, because a token may be granted less than the platform offers.
+ */
+export const PLATFORM_METRICS = {
+  INSTAGRAM: ["VIEWS", "REACH", "LIKES", "COMMENTS", "SAVES", "SHARES"],
+  /** A Page has no "saved" equivalent; the rest map onto Page post insights. */
+  FACEBOOK: ["VIEWS", "REACH", "LIKES", "COMMENTS", "SHARES"],
+  /**
+   * The Data API's `statistics` part. There is no reach or saves concept, and
+   * `favoriteCount` has been hardcoded to 0 by YouTube for years, so it is not
+   * modelled as SAVES.
+   */
+  YOUTUBE: ["VIEWS", "LIKES", "COMMENTS"],
+  TIKTOK: ["VIEWS", "LIKES", "COMMENTS", "SHARES"],
+} as const satisfies Record<Platform, readonly Metric[]>;
+
+/**
+ * One number, with everything needed to render it without knowing where it came
+ * from.
+ *
+ * `label` is what this platform calls the metric to its own users: a Page says
+ * "People reached" where Instagram says "Reach". Only the adapter knows the
+ * vendor's vocabulary, so only the adapter can supply it.
+ *
+ * `value: null` means the platform reports this metric but the current token
+ * cannot read it, which reconnecting fixes. A metric absent from the list
+ * entirely means the platform does not have it, which never will. The UI has to
+ * say different things, so the type distinguishes them.
+ */
+export interface ReportedMetric {
+  readonly metric: Metric;
+  readonly label: string;
+  readonly value: number | null;
+  /** Display order. Lower sorts first, so each platform leads with its headline. */
+  readonly rank: number;
+}
+
+/**
+ * What one post scored, by metric.
+ *
+ * Partial because a platform reports a subset and a token may be granted less
+ * again. An absent key means "not reported"; it is never a zero, because a post
+ * with no reach data and a post with zero reach are different facts.
+ */
+export type MetricValues = Partial<Record<Metric, number>>;
+
+export interface AudiencePoint {
+  /** `YYYY-MM-DD`. */
+  readonly date: string;
+  readonly value: number;
+  /** Change against the previous point, or null for the first one. */
+  readonly delta: number | null;
+}
+
+/**
+ * Why part of a report is missing, phrased for the person reading it.
+ *
+ * Carried in the report rather than thrown, because a missing insights scope
+ * must not cost the caller the likes and comments that did arrive.
+ */
+export interface ReportNotice {
+  readonly kind: "permission" | "truncated";
+  readonly message: string;
+}
+
+/**
+ * What one account's analytics look like, fully described by the adapter.
+ *
+ * The alternative — handing back a bare `Partial<Record<Metric, number>>` —
+ * leaves tile order, per-vendor labels and empty-state policy to be re-decided
+ * in every page that renders it. That policy belongs to the adapter that knows
+ * the platform.
+ */
+export interface AccountReport {
+  readonly tiles: readonly ReportedMetric[];
+  /** Columns for the per-post table, in display order. */
+  readonly columns: readonly { readonly metric: Metric; readonly label: string }[];
+  readonly rows: readonly {
+    readonly post: PostSummary;
+    readonly values: MetricValues;
+  }[];
+  readonly notices: readonly ReportNotice[];
+}
+
+/**
+ * How many people follow an account.
+ *
+ * Followers, fans, or subscribers: one concept with four names, which is why
+ * the noun travels with the number. Deliberately not part of `AccountReport`.
+ * The combined figure across every connected account has to ask each one, and
+ * building a full post-by-post report per account to reach a single number
+ * would cost hundreds of requests for one line of UI.
+ */
+export interface Audience {
+  readonly noun: string;
+  readonly current: number | null;
+  readonly history: readonly AudiencePoint[];
+}
+
+/**
+ * Reading numbers back out of a platform.
+ *
+ * Null on `PlatformAdapter` where the platform has no analytics surface at all.
+ * A nullable field rather than optional methods, so one check narrows the whole
+ * capability and a platform cannot half-implement it.
+ */
+export interface InsightsCapability {
+  readonly metrics: readonly Metric[];
+  /**
+   * One call for the whole Overview.
+   *
+   * The adapter owns its own fan-out, pagination and degradation. Instagram's
+   * implementation is a per-media insight request per post under bounded
+   * concurrency, which is the single largest subrequest consumer in the app —
+   * keeping it behind this method is what lets that budget be reasoned about in
+   * one place rather than per route.
+   */
+  buildReport(
+    accessToken: string,
+    accountExternalId: string,
+    options: { readonly limit: number }
+  ): Promise<AccountReport>;
+
+  /**
+   * One cheap call, so the cross-platform total can ask every account without
+   * building every report. Null where the platform reports no audience size, or
+   * where the account has hidden it — which is an absence, never a zero.
+   */
+  fetchAudience(
+    accessToken: string,
+    accountExternalId: string
+  ): Promise<Audience | null>;
+}
+
+/** One conversation, as the dashboard inbox lists it. */
+export interface Thread {
+  readonly id: string;
+  readonly contact: { readonly id: string; readonly username: string | null };
+  readonly updatedAt: string | null;
+  readonly lastMessage: {
+    readonly text: string;
+    readonly fromMe: boolean;
+    readonly at: string | null;
+  } | null;
+}
+
+export interface ThreadMessage {
+  readonly id: string;
+  readonly text: string;
+  readonly fromMe: boolean;
+  readonly fromUsername: string | null;
+  readonly at: string | null;
+}
+
+/**
+ * Reading conversation history, which is a different question from sending.
+ *
+ * `CONVERSATION_HISTORY` has been in the capability table since the capability
+ * layer was written, with nothing behind it on Facebook. The inbox filtered on
+ * the table, offered a Page, and then failed against an Instagram-only client.
+ * Deriving availability from `adapter.conversations !== null` makes the claim
+ * and the implementation the same fact.
+ */
+export interface ConversationsCapability {
+  listThreads(
+    accessToken: string,
+    accountExternalId: string,
+    limit: number
+  ): Promise<readonly Thread[]>;
+
+  readThread(
+    accessToken: string,
+    accountExternalId: string,
+    threadId: string
+  ): Promise<readonly ThreadMessage[]>;
+
+  /**
+   * Replying from the dashboard. Null where history is readable but the reply
+   * would have to originate from us, which TikTok prohibits outside three
+   * countries.
+   */
+  readonly reply:
+    | ((
+        accessToken: string,
+        accountExternalId: string,
+        recipientId: string,
+        text: string
+      ) => Promise<SendResult>)
+    | null;
+}
+
 /**
  * One network.
  *
@@ -436,6 +647,21 @@ export interface PlatformAdapter {
 
   /** Null where the platform has no messaging API at all. */
   readonly messaging: MessagingCapability | null;
+
+  /** Null where the platform reports no post-level analytics. */
+  readonly insights: InsightsCapability | null;
+
+  /**
+   * The account's own avatar, for the campaign preview that shows a creator
+   * what their DM will look like arriving.
+   *
+   * Optional rather than nullable: a platform that does not expose one has
+   * nothing to implement, and the preview simply falls back to initials.
+   */
+  fetchProfileImage?(accessToken: string, accountExternalId: string): Promise<string | null>;
+
+  /** Null where conversation history cannot be read. */
+  readonly conversations: ConversationsCapability | null;
 
   /**
    * `accountExternalId` is not decoration. TikTok requires the account's own

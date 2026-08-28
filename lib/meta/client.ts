@@ -513,7 +513,8 @@ export interface InstagramConversation {
  */
 export async function getConversations(
   accessToken: string,
-  igUserId: string
+  igUserId: string,
+  limit = 50
 ): Promise<InstagramConversation[]> {
   const url = new URL(`${instagramGraphBase()}/${igUserId}/conversations`);
   url.searchParams.set("platform", "instagram");
@@ -521,7 +522,7 @@ export async function getConversations(
     "fields",
     "participants,updated_time,messages.limit(1){message,from,created_time}"
   );
-  url.searchParams.set("limit", "50");
+  url.searchParams.set("limit", String(limit));
   url.searchParams.set("access_token", accessToken);
 
   const response = await fetch(url.toString());

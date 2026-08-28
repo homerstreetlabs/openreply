@@ -14,13 +14,14 @@ const navItems = [
   { label: "Overview", href: "/overview" },
   { label: "Inbox", href: "/inbox" },
   { label: "Campaigns", href: "/campaigns" },
-  { label: "DM Logs", href: "/logs" },
+  { label: "Activity", href: "/activity" },
   { label: "Settings", href: "/settings" },
 ];
 
 /** Cross-creator surfaces. Hidden entirely without a platform grant. */
 const adminNavItems = [
   { label: "Fleet", href: "/fleet" },
+  { label: "Users", href: "/users" },
   { label: "Creators", href: "/creators" },
   { label: "Diagnostics", href: "/diagnostics" },
 ];

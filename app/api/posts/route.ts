@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/session";
-import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
+import { accountDirectory, accountWithToken } from "@/lib/accounts/directory";
 import { adapterFor } from "@/lib/platforms/registry";
-import { decryptToken } from "@/lib/meta/oauth";
 import { platformName } from "@/lib/campaigns/options";
 
 /**
@@ -24,17 +23,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const account = await getWorkspaceInstagramAccount(
-    workspaceId,
-    request.nextUrl.searchParams.get("accountId")
-  );
+  // An explicit id, or the workspace's default. Either way the account is
+  // resolved once and carries its platform, so the adapter below is chosen by
+  // what the account is rather than by which host the caller assumed.
+  const requested = request.nextUrl.searchParams.get("accountId");
+  const accountId =
+    requested && requested !== "all"
+      ? requested
+      : (await accountDirectory(workspaceId)).all[0]?.id;
 
-  if (!account) {
+  const resolved = accountId
+    ? await accountWithToken(workspaceId, accountId)
+    : null;
+
+  if (!resolved) {
     return NextResponse.json(
       { success: false, error: "No account connected. Connect one first." },
       { status: 400 }
     );
   }
+  const { account, accessToken } = resolved;
 
   const limitParam = request.nextUrl.searchParams.get("limit");
   const parsed = limitParam ? Number.parseInt(limitParam, 10) : 25;
@@ -45,10 +53,9 @@ export async function GET(request: NextRequest) {
       : 25;
 
   try {
-    const accessToken = decryptToken(account.accessToken);
     const posts = await adapterFor(account.platform).listPosts(
       accessToken,
-      account.instagramId,
+      account.externalId,
       limit
     );
     return NextResponse.json({ success: true, data: posts });

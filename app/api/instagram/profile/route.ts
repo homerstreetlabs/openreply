@@ -1,51 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentWorkspaceId } from "@/lib/session";
-import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
-import { getUserInfo } from "@/lib/meta/client";
-import { decryptToken } from "@/lib/meta/oauth";
+import { getSessionScope } from "@/lib/session";
+import { accountWithToken } from "@/lib/accounts/directory";
+import { adapterFor } from "@/lib/platforms/registry";
 
 export const dynamic = "force-dynamic";
 
-// Live profile lookup (username + avatar) for the campaign preview.
+/**
+ * Who a connected account is, for the campaign preview.
+ *
+ * The label comes from the directory, so a Facebook Page renders as its name
+ * rather than "@My Business Page". The avatar comes from the adapter, and a
+ * platform that exposes none simply returns null instead of this route sending
+ * one platform's token to another platform's host.
+ */
 export async function GET(request: NextRequest) {
-  const workspaceId = await getCurrentWorkspaceId();
-  if (!workspaceId) {
-    return NextResponse.json(
-      { success: false, error: "Unauthorized" },
-      { status: 401 }
-    );
+  const scope = await getSessionScope();
+  if (!scope) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const account = await getWorkspaceInstagramAccount(
-    workspaceId,
-    request.nextUrl.searchParams.get("instagramAccountId")
-  );
-  if (!account) {
+  const accountId = request.nextUrl.searchParams.get("accountId");
+  if (!accountId) {
     return NextResponse.json(
-      { success: false, error: "Instagram account not connected" },
+      { success: false, error: "An account is required" },
       { status: 400 }
     );
   }
 
-  try {
-    const token = decryptToken(account.accessToken);
-    const info = await getUserInfo(token);
-    return NextResponse.json(
-      {
-        success: true,
-        data: {
-          username: info.username,
-          name: info.name ?? null,
-          profilePictureUrl: info.profile_picture_url ?? null,
-        },
-      },
-      { headers: { "Cache-Control": "private, max-age=300" } }
-    );
-  } catch (err) {
-    console.error("[Instagram Profile] Error:", err);
-    return NextResponse.json(
-      { success: false, error: "Failed to load profile" },
-      { status: 500 }
-    );
+  const resolved = await accountWithToken(scope.workspaceId, accountId);
+  if (!resolved) {
+    return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
   }
+
+  const adapter = adapterFor(resolved.account.platform);
+  let profilePictureUrl: string | null = null;
+  try {
+    profilePictureUrl =
+      (await adapter.fetchProfileImage?.(
+        resolved.accessToken,
+        resolved.account.externalId
+      )) ?? null;
+  } catch {
+    // The preview renders without an avatar rather than failing.
+  }
+
+  return NextResponse.json(
+    {
+      success: true,
+      data: {
+        label: resolved.account.label,
+        platform: resolved.account.platform,
+        profilePictureUrl,
+      },
+    },
+    { headers: { "Cache-Control": "private, max-age=300" } }
+  );
 }

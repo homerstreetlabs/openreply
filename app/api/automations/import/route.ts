@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
+import { accountInWorkspace } from "@/lib/accounts/directory";
 import { generateReportShareSlug } from "@/lib/reports/share";
 import { generateTrackedLinkSlug } from "@/lib/tracking/server";
 import {
@@ -23,7 +23,7 @@ const campaignSchema = z.object({
 });
 
 const importSchema = z.object({
-  instagramAccountId: z.string().min(1),
+  accountId: z.string().min(1),
   campaigns: z.array(campaignSchema).min(1).max(200),
 });
 
@@ -51,13 +51,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const account = await getWorkspaceInstagramAccount(
-    context.workspaceId,
-    parsed.data.instagramAccountId
-  );
+  const account = await accountInWorkspace(context.workspaceId, parsed.data.accountId);
   if (!account) {
     return NextResponse.json(
-      { success: false, error: "Instagram account not found" },
+      { success: false, error: "Account not found" },
       { status: 400 }
     );
   }

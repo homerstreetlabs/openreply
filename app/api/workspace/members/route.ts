@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import {
-  buildInvitationUrl,
-  generateInvitationToken,
-  getInvitationExpiry,
-  normalizeInvitationEmail,
-} from "@/lib/workspace-invitations";
+import { inviteMember, invitationUrl } from "@/lib/invitations";
 import {
   canManageWorkspace,
   getCurrentWorkspaceContext,
@@ -48,8 +43,8 @@ async function getMemberPayload(
         },
       },
     }),
-    prisma.workspaceInvitation.findMany({
-      where: { workspaceId, status: "PENDING" },
+    prisma.invitation.findMany({
+      where: { workspaceId, kind: "MEMBER", status: "PENDING" },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -67,7 +62,7 @@ async function getMemberPayload(
     members,
     invitations: invitations.map((invitation) => ({
       ...invitation,
-      inviteUrl: buildInvitationUrl(invitation.token),
+      inviteUrl: invitationUrl("MEMBER", invitation.token),
     })),
   };
 }
@@ -113,7 +108,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const email = normalizeInvitationEmail(parsed.data.email);
+  const email = parsed.data.email.trim().toLowerCase();
   const existingUser = await prisma.user.findUnique({
     where: { email },
     select: { id: true },
@@ -137,28 +132,20 @@ export async function POST(request: NextRequest) {
       },
     });
   } else {
-    await prisma.workspaceInvitation.upsert({
-      where: {
-        workspaceId_email: {
-          workspaceId: context.workspaceId,
-          email,
-        },
-      },
-      create: {
-        workspaceId: context.workspaceId,
-        email,
-        role: parsed.data.role,
-        token: generateInvitationToken(),
-        invitedByUserId: context.userId,
-        expiresAt: getInvitationExpiry(),
-      },
-      update: {
-        role: parsed.data.role,
-        status: "PENDING",
-        token: generateInvitationToken(),
-        invitedByUserId: context.userId,
-        expiresAt: getInvitationExpiry(),
-      },
+    // Sends the mail. This used to upsert a row and return a URL for the admin
+    // to paste somewhere, which became the only thing anyone used, which is why
+    // nobody noticed it never sent an email.
+    const inviter = await prisma.user.findUnique({
+      where: { id: context.userId },
+      select: { name: true, email: true },
+    });
+
+    await inviteMember({
+      email,
+      workspaceId: context.workspaceId,
+      role: parsed.data.role,
+      invitedByUserId: context.userId,
+      inviterName: inviter?.name ?? inviter?.email ?? null,
     });
   }
 
@@ -250,7 +237,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   if (parsed.data.invitationId) {
-    await prisma.workspaceInvitation.updateMany({
+    await prisma.invitation.updateMany({
       where: {
         id: parsed.data.invitationId,
         workspaceId: context.workspaceId,

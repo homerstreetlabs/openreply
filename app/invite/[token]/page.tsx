@@ -18,7 +18,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
   const { token } = await params;
   const [session, invitation] = await Promise.all([
     auth(),
-    prisma.workspaceInvitation.findUnique({
+    prisma.invitation.findUnique({
       where: { token },
       include: {
         workspace: { select: { name: true } },
@@ -26,7 +26,14 @@ export default async function InvitePage({ params }: InvitePageProps) {
     }),
   ]);
 
-  if (!invitation || invitation.status !== "PENDING") {
+  // A member invitation whose workspace was deleted has nothing to accept, and
+  // a creator invitation belongs on /join, not here.
+  if (
+    !invitation ||
+    invitation.status !== "PENDING" ||
+    invitation.kind !== "MEMBER" ||
+    !invitation.workspace
+  ) {
     notFound();
   }
 
@@ -46,7 +53,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
             Join {invitation.workspace.name}
           </h1>
           <p className="mt-4 text-sm leading-6 text-zinc-400">
-            You were invited as {invitation.role.toLowerCase()} for{" "}
+            You were invited as {invitation.role ?? "MEMBER".toLowerCase()} for{" "}
             {invitation.email}.
           </p>
           <div className="mt-8">

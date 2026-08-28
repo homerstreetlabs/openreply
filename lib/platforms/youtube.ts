@@ -23,10 +23,13 @@
 import { requireEnv } from "@/lib/env";
 import type {
   Discovery,
+  InsightsCapability,
+  Metric,
+  MetricValues,
   PlatformAdapter,
   PostSummary,
 } from "./types";
-import { PLATFORM_CAPABILITIES } from "./types";
+import { PLATFORM_CAPABILITIES, PLATFORM_METRICS } from "./types";
 
 /** The only write scope Google offers. There is no narrower one for a reply. */
 export const YOUTUBE_SCOPES = [
@@ -140,7 +143,102 @@ const discovery: Discovery = {
   pollCost: YOUTUBE_QUOTA.commentThreadsList,
 };
 
+const YT_LABELS = {
+  VIEWS: "Views",
+  LIKES: "Likes",
+  COMMENTS: "Comments",
+  REACH: "Reach",
+  SAVES: "Saved",
+  SHARES: "Shares",
+} satisfies Record<Metric, string>;
+
+/**
+ * `videos.list` costs one quota unit and accepts up to 50 ids, so a whole
+ * report's statistics arrive in one call rather than one per video. Against a
+ * 10,000-unit daily budget shared by every creator, that difference is the
+ * whole reason Overview is affordable here.
+ */
+const insights: InsightsCapability = {
+  metrics: PLATFORM_METRICS.YOUTUBE,
+
+  async buildReport(accessToken, channelId, { limit }) {
+    const posts = await youtubeAdapter.listPosts(accessToken, channelId, limit);
+    if (posts.length === 0) {
+      return { tiles: [], columns: [], rows: [], audience: null, notices: [] };
+    }
+
+    const videos = new URL(`${API}/videos`);
+    videos.searchParams.set("part", "statistics");
+    videos.searchParams.set("id", posts.map((p) => p.id).join(","));
+
+    const stats = await call<{
+      items?: Array<{
+        id?: string;
+        statistics?: { viewCount?: string; likeCount?: string; commentCount?: string };
+      }>;
+    }>(videos, accessToken);
+
+    // Counts arrive as strings, and a video with likes hidden omits the field
+    // entirely rather than returning zero.
+    const byId = new Map(
+      (stats.items ?? []).map((item) => {
+        const s = item.statistics ?? {};
+        const values: MetricValues = {};
+        if (s.viewCount !== undefined) values.VIEWS = Number(s.viewCount);
+        if (s.likeCount !== undefined) values.LIKES = Number(s.likeCount);
+        if (s.commentCount !== undefined) values.COMMENTS = Number(s.commentCount);
+        return [item.id, values];
+      })
+    );
+
+    const rows = posts.map((post) => ({ post, values: byId.get(post.id) ?? {} }));
+
+    const metrics = PLATFORM_METRICS.YOUTUBE;
+    return {
+      tiles: metrics.map((metric, index) => ({
+        metric,
+        label: YT_LABELS[metric],
+        value: rows.reduce<number | null>(
+          (sum, row) =>
+            row.values[metric] === undefined ? sum : (sum ?? 0) + row.values[metric],
+          null
+        ),
+        rank: index + 1,
+      })),
+      columns: metrics.map((metric) => ({ metric, label: YT_LABELS[metric] })),
+      rows,
+      notices: [],
+    };
+  },
+
+  async fetchAudience(accessToken, channelId) {
+    const channels = new URL(`${API}/channels`);
+    channels.searchParams.set("part", "statistics");
+    channels.searchParams.set("id", channelId);
+    const data = await call<{
+      items?: Array<{
+        statistics?: { subscriberCount?: string; hiddenSubscriberCount?: boolean };
+      }>;
+    }>(channels, accessToken);
+
+    const stats = data.items?.[0]?.statistics;
+    // A channel may hide its subscriber count. That is an absence, not a zero,
+    // and charting it as one would invent a cliff that never happened.
+    const current =
+      stats?.hiddenSubscriberCount || stats?.subscriberCount === undefined
+        ? null
+        : Number(stats.subscriberCount);
+    return { noun: "subscribers", current, history: [] };
+  },
+};
+
 export const youtubeAdapter: PlatformAdapter = {
+  insights,
+  /**
+   * No messaging resource means no conversation to read. Null is the honest
+   * answer, and it is what keeps the account out of the inbox picker.
+   */
+  conversations: null,
   platform: "YOUTUBE",
   capabilities: PLATFORM_CAPABILITIES.YOUTUBE,
   discovery,
