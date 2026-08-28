@@ -19,7 +19,7 @@ import { reconcileComments } from "@/lib/polling/comment-reconciler";
 import { sweepPollOnlyAccounts } from "@/lib/polling/poll-sweep";
 import { snapshotQuota } from "@/lib/ops/quota-snapshot";
 import { attachNextReel } from "@/lib/jobs/attach-next-reel";
-import { refreshTokens } from "@/lib/jobs/refresh-tokens";
+import { refreshTokens, TOKEN_REFRESH_CRON } from "@/lib/jobs/refresh-tokens";
 import { snapshotFollowers } from "@/lib/jobs/snapshot-followers";
 import { refreshDerivedCapacity } from "@/lib/jobs/refresh-capacity";
 import { advanceDueRuns } from "@/lib/runtime/dispatch";
@@ -77,7 +77,7 @@ const CRON_JOBS = {
     await reconcileComments();
     await sweepPollOnlyAccounts();
   },
-  "0 5 * * *": async () => void (await refreshTokens()),
+  [TOKEN_REFRESH_CRON]: async () => void (await refreshTokens()),
   "0 6 * * *": async () => void (await attachNextReel()),
   "0 7 * * *": async () => void (await snapshotFollowers()),
   "0 8 * * *": async () => void (await refreshDerivedCapacity()),

@@ -4,6 +4,28 @@ import { decryptToken, encryptToken } from "@/lib/meta/oauth";
 import { adapterFor } from "@/lib/platforms/registry";
 import { classifyFailure, raiseIncident, resolveIncident } from "@/lib/ops/incidents";
 
+/**
+ * Which cron tick repairs tokens.
+ *
+ * Exported because it is half of an invariant the other half of which lives in
+ * the adapters: a tick that fires less often than the narrowest
+ * `refreshWithinMs` can never catch a token inside its window. YouTube wants
+ * ten minutes' notice, so a daily tick misses it by two orders of magnitude.
+ * `__tests__/token-refresh-cadence.test.ts` holds the two together.
+ */
+export const TOKEN_REFRESH_CRON = "0 5 * * *";
+
+/**
+ * How often a cron expression fires, for the shapes this Worker uses: a
+ * step across the minute field, or a fixed daily time.
+ */
+export function cronIntervalMs(expression: string): number {
+  const [minute, hour] = expression.split(" ");
+  const step = /^\*\/(\d+)$/.exec(minute);
+  if (step && hour === "*") return Number(step[1]) * 60_000;
+  return 24 * 3_600_000;
+}
+
 export async function refreshTokens() {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
