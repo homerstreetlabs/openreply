@@ -1,28 +1,91 @@
 import { prisma } from "@/lib/db/client";
 import type { Prisma } from "@/app/generated/prisma/client";
 import { decryptToken, encryptToken } from "@/lib/meta/oauth";
-import { adapterFor } from "@/lib/platforms/registry";
+import { ADAPTERS, adapterFor } from "@/lib/platforms/registry";
+import type { Platform } from "@/lib/platforms/types";
 import { classifyFailure, raiseIncident, resolveIncident } from "@/lib/ops/incidents";
 
-export async function refreshTokens() {
+/**
+ * Which cron tick repairs tokens.
+ *
+ * Exported because it is half of an invariant the other half of which lives in
+ * the adapters: a tick that fires less often than the narrowest
+ * `refreshWithinMs` can never catch a token inside its window. YouTube wants
+ * ten minutes' notice, so a daily tick misses it by two orders of magnitude.
+ * `__tests__/token-refresh-cadence.test.ts` holds the two together.
+ */
+export const TOKEN_REFRESH_CRON = "*/5 * * * *";
+
+/**
+ * How often a cron expression fires, for the two shapes this Worker uses: a
+ * step across the minute field, or a fixed time each day.
+ *
+ * Throws on anything else rather than guessing. This number is one side of the
+ * refresh-cadence invariant, so a shape it cannot read has to stop the build
+ * instead of yielding a plausible default that the check would compare against.
+ */
+export function cronIntervalMs(expression: string): number {
+  const [minute, hour, ...rest] = expression.split(" ");
+
+  const step = /^\*\/(\d+)$/.exec(minute);
+  if (step && hour === "*") return Number(step[1]) * 60_000;
+
+  const daily = /^\d+$/.test(minute) && /^\d+$/.test(hour) && rest.join(" ") === "* * *";
+  if (daily) return 24 * 3_600_000;
+
+  throw new Error(`Unsupported cron expression: ${expression}`);
+}
+
+/**
+ * Roll each workspace's usage period over when the month turns.
+ *
+ * Split out of the token refresh, which now runs every five minutes. The reset
+ * wants a daily tick and nothing more, and running it on the fast one would be
+ * a write that matches no rows 288 times a day.
+ */
+export async function resetMonthlyUsage(): Promise<{ workspacesReset: number }> {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const usageReset = await prisma.workspace.updateMany({
+  const reset = await prisma.workspace.updateMany({
     where: { usagePeriodStart: { lt: monthStart } },
-    data: {
-      usagePeriodStart: monthStart,
-      dmsSentThisPeriod: 0,
-    },
+    data: { usagePeriodStart: monthStart, dmsSentThisPeriod: 0 },
   });
 
-  // Every account with an expiry, on any platform. Whether it can be refreshed
-  // and how soon is the adapter's answer, not this job's: Facebook Page tokens
-  // never expire and carry no expiry to select on, Instagram refreshes by
-  // presenting the token itself, and YouTube and TikTok need a stored refresh
-  // token that only they know how to spend.
-  const candidates = await prisma.connectedAccount.findMany({
-    where: { accessToken: { not: "" }, tokenExpiresAt: { not: null } },
+  return { workspacesReset: reset.count };
+}
+
+/**
+ * Which accounts are inside their platform's refresh window right now.
+ *
+ * Derived from the registry rather than listed, so a fifth platform is selected
+ * without editing this, and built as a query rather than a filter because at a
+ * five-minute cadence reading every account into the Worker to discard most of
+ * them is 288 full scans a day.
+ */
+function dueForRefresh(now: Date): Prisma.ConnectedAccountWhereInput {
+  // SAFETY: ADAPTERS is `satisfies { [P in Platform]: PlatformAdapter }`, so its
+  // keys are exactly the Platform union and the compiler enforces that.
+  const windows = (Object.keys(ADAPTERS) as Platform[]).flatMap((platform) => {
+    const lifetime = ADAPTERS[platform].tokens;
+    // A permanent token carries no expiry to select on and nothing to spend.
+    if (lifetime.kind === "permanent") return [];
+    return [
+      {
+        platform,
+        tokenExpiresAt: { lte: new Date(now.getTime() + lifetime.refreshWithinMs) },
+      },
+    ];
+  });
+
+  return { accessToken: { not: "" }, tokenExpiresAt: { not: null }, OR: windows };
+}
+
+export async function refreshTokens() {
+  const now = new Date();
+
+  const accountsToRefresh = await prisma.connectedAccount.findMany({
+    where: dueForRefresh(now),
     select: {
       id: true,
       platform: true,
@@ -32,13 +95,6 @@ export async function refreshTokens() {
       refreshToken: true,
       tokenExpiresAt: true,
     },
-  });
-
-  const accountsToRefresh = candidates.filter((account) => {
-    const lifetime = adapterFor(account.platform).tokens;
-    if (lifetime.kind === "permanent") return false;
-    const expiresAt = account.tokenExpiresAt;
-    return expiresAt !== null && expiresAt.getTime() - now.getTime() <= lifetime.refreshWithinMs;
   });
 
   const results: Array<{
@@ -112,7 +168,6 @@ export async function refreshTokens() {
 
   return {
     totalProcessed: accountsToRefresh.length,
-    workspacesReset: usageReset.count,
     results,
   };
 }

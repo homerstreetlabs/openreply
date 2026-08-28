@@ -19,7 +19,7 @@ import { reconcileComments } from "@/lib/polling/comment-reconciler";
 import { sweepPollOnlyAccounts } from "@/lib/polling/poll-sweep";
 import { snapshotQuota } from "@/lib/ops/quota-snapshot";
 import { attachNextReel } from "@/lib/jobs/attach-next-reel";
-import { refreshTokens } from "@/lib/jobs/refresh-tokens";
+import { refreshTokens, resetMonthlyUsage, TOKEN_REFRESH_CRON } from "@/lib/jobs/refresh-tokens";
 import { snapshotFollowers } from "@/lib/jobs/snapshot-followers";
 import { refreshDerivedCapacity } from "@/lib/jobs/refresh-capacity";
 import { advanceDueRuns } from "@/lib/runtime/dispatch";
@@ -67,7 +67,11 @@ const BACKOFF_SECONDS = [300, 900, 2700];
  * calls it by hand.
  */
 const CRON_JOBS = {
-  "*/5 * * * *": async () => {
+  [TOKEN_REFRESH_CRON]: async () => {
+    // Before anything spends a token. YouTube's lives an hour and asks for ten
+    // minutes' notice, so this is the only tick that can reach it in time;
+    // nothing refreshes lazily at the point of use.
+    await refreshTokens();
     // Parked runs first. A run waiting on a read receipt or a delayed follow-up
     // has already engaged someone, and letting new discovery starve it would
     // strand a conversation that is halfway done.
@@ -77,7 +81,7 @@ const CRON_JOBS = {
     await reconcileComments();
     await sweepPollOnlyAccounts();
   },
-  "0 5 * * *": async () => void (await refreshTokens()),
+  "0 5 * * *": async () => void (await resetMonthlyUsage()),
   "0 6 * * *": async () => void (await attachNextReel()),
   "0 7 * * *": async () => void (await snapshotFollowers()),
   "0 8 * * *": async () => void (await refreshDerivedCapacity()),

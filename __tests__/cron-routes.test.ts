@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const j = vi.hoisted(() => ({
-  refreshTokens: vi.fn(async () => ({ totalProcessed: 2, workspacesReset: 1, results: [] })),
+  refreshTokens: vi.fn(async () => ({ totalProcessed: 2, results: [] })),
   attachNextReel: vi.fn(async () => ({ checked: 3, bound: 1, failedAccounts: 0 })),
   snapshotFollowers: vi.fn(async () => ({ accounts: 4, recorded: 4, backfilled: 30, failures: [] })),
 }));

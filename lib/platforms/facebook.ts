@@ -45,6 +45,7 @@ import {
   canOperatePage,
   exchangeCodeForPages,
   getFacebookAuthorizationUrl,
+  subscribePageToWebhooks,
 } from "./facebook-oauth";
 
 function graphBase() {
@@ -559,6 +560,10 @@ export const facebookAdapter: PlatformAdapter = {
   discovery,
   insights,
   conversations,
+
+  async subscribeToEvents(accessToken, pageId) {
+    return subscribePageToWebhooks(pageId, accessToken);
+  },
 
   /**
    * Page tokens derived from a long-lived user token do not expire. Nothing to

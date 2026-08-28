@@ -11,6 +11,7 @@ import {
   getUserFollowStatus,
   getUserInfo,
   getAllUserMedia,
+  getLongLivedToken,
   getMediaInsights,
   getConversations,
   getConversationMessages,
@@ -25,6 +26,7 @@ import {
   sendPrivateReply as igSendPrivateReply,
   sendPrivateReplyWithButton as igSendPrivateReplyWithButton,
   sendPrivateReplyWithLinkButton,
+  subscribeInstagramAccountToWebhooks,
 } from "@/lib/meta/client";
 import {
   INSTAGRAM_SCOPES,
@@ -395,6 +397,14 @@ export const instagramAdapter: PlatformAdapter = {
   insights,
   conversations,
 
+  async subscribeToEvents(accessToken, accountExternalId) {
+    const result = await subscribeInstagramAccountToWebhooks(
+      accountExternalId,
+      accessToken
+    );
+    return Boolean(result.success);
+  },
+
   async fetchProfileImage(accessToken) {
     const info = await getUserInfo(accessToken);
     return info.profile_picture_url ?? null;
@@ -409,8 +419,14 @@ export const instagramAdapter: PlatformAdapter = {
       return getAuthorizationUrl(redirectUri, state);
     },
     async exchange(_app, code, redirectUri) {
-      const { accessToken } = await exchangeCodeForToken(code, redirectUri);
-      const profile = await getUserInfo(accessToken);
+      // The authorization-code grant returns a SHORT-lived token, good for
+      // about an hour. `ig_exchange_token` is what turns it into the 60-day
+      // one. Skipping it stored a token that died overnight while the row
+      // recorded 60 days remaining, so the refresh cron never came back for it.
+      const { accessToken: shortLived } = await exchangeCodeForToken(code, redirectUri);
+      const longLived = await getLongLivedToken(shortLived);
+
+      const profile = await getUserInfo(longLived.accessToken);
       return [
         {
           // `user_id` is the professional account id webhooks arrive under.
@@ -418,10 +434,9 @@ export const instagramAdapter: PlatformAdapter = {
           externalId: profile.user_id ?? profile.id,
           username: profile.username,
           displayName: profile.name ?? null,
-          accessToken,
+          accessToken: longLived.accessToken,
           refreshToken: null,
-          // Long-lived tokens last 60 days and refresh by presenting themselves.
-          expiresInSeconds: 60 * 24 * 3600,
+          expiresInSeconds: longLived.expiresIn,
           region: null,
           grantedScopes: INSTAGRAM_SCOPES,
         },

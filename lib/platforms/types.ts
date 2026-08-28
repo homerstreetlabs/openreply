@@ -660,6 +660,19 @@ export interface PlatformAdapter {
    */
   fetchProfileImage?(accessToken: string, accountExternalId: string): Promise<string | null>;
 
+  /**
+   * Ask the platform to start delivering this account's events to us.
+   *
+   * Absent on a platform where there is nothing to subscribe: YouTube is
+   * poll-only, and TikTok's webhook is registered once for the app rather than
+   * per account. Optional rather than nullable so neither has to stub it.
+   *
+   * Meta unsubscribes an app after an hour of delivery failures, so this is not
+   * only a connect-time step; a Page or account that stops delivering has to be
+   * re-subscribed rather than debugged in the dashboard.
+   */
+  subscribeToEvents?(accessToken: string, accountExternalId: string): Promise<boolean>;
+
   /** Null where conversation history cannot be read. */
   readonly conversations: ConversationsCapability | null;
 

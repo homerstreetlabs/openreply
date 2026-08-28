@@ -84,6 +84,28 @@ async function store(
     declined[capability] = { code: reason.code, message: reason.message };
   }
 
+  // Meta will not deliver anything until the app is subscribed to the account,
+  // and it unsubscribes after an hour of failures, so this runs on every
+  // connect and reconnect rather than only the first. A refusal is recorded
+  // rather than thrown: the account is connected either way, and Fleet reads
+  // this flag to say "not receiving webhooks" instead of the connect failing
+  // with nothing stored.
+  let webhookSubscribed = false;
+  const adapter = adapterFor(platform);
+  if (adapter.subscribeToEvents) {
+    try {
+      webhookSubscribed = await adapter.subscribeToEvents(
+        identity.accessToken,
+        identity.externalId
+      );
+    } catch (failure) {
+      console.warn(
+        `[connect] ${platform} webhook subscribe failed for ${identity.externalId}:`,
+        failure instanceof Error ? failure.message : failure
+      );
+    }
+  }
+
   const shared = {
     username: identity.username,
     name: identity.displayName,
@@ -96,6 +118,7 @@ async function store(
     region: capabilities.region,
     declinedCapabilities: declined,
     capabilitiesAt: new Date(),
+    webhookSubscribed,
     providerAppId: providerAppId.startsWith("env:") ? null : providerAppId,
   };
 
