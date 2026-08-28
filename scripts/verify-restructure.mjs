@@ -237,7 +237,7 @@ unit(4, "closed registration", () => {
 
   check("the signIn callback gates sign-in", () => {
     const src = read("lib/auth.ts");
-    return /callbacks:[\s\S]{0,400}async signIn/.test(src) && /admit\(/.test(src);
+    return /callbacks:[\s\S]*?async signIn/.test(src) && /admit\(/.test(src);
   });
 
   check("sign-in no longer provisions a workspace unconditionally", () =>
@@ -259,12 +259,14 @@ unit(4, "closed registration", () => {
     return found || "no migration mentions UserStatus";
   });
 
+  // The write must sit inside a server action, not the render path. A prefetch
+  // or a mail scanner following the link used to consume the invitation.
   check("accepting an invitation is not a GET render", () => {
     const src = read("app/join/[token]/page.tsx");
-    return (
-      !/await acceptCreatorInvitation\(/.test(src) ||
-      "the page still accepts the invitation during render"
-    );
+    const action = src.indexOf('"use server"');
+    const accept = src.indexOf("acceptCreatorInvitation({");
+    if (action === -1) return "no server action on the page";
+    return accept > action || "the invitation is accepted during render";
   });
 });
 

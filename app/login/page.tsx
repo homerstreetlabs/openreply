@@ -14,6 +14,7 @@ export default async function LoginPage({
     checkEmail?: string;
     callbackUrl?: string;
     template?: string;
+    denied?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -22,6 +23,7 @@ export default async function LoginPage({
   if (session?.user?.id) redirect("/dashboard");
 
   const checkEmail = params.checkEmail === "1";
+  const denied = params.denied === "1";
   const selectedTemplate = getCampaignTemplate(params.template);
   const templateCallbackUrl = selectedTemplate
     ? `/campaigns/new?template=${selectedTemplate.slug}`
@@ -30,10 +32,17 @@ export default async function LoginPage({
 
   async function sendMagicLink(formData: FormData) {
     "use server";
-    await signIn(EMAIL_PROVIDER_ID, {
-      email: String(formData.get("email") ?? ""),
-      redirectTo: callbackUrl,
-    });
+    try {
+      await signIn(EMAIL_PROVIDER_ID, {
+        email: String(formData.get("email") ?? ""),
+        redirectTo: callbackUrl,
+      });
+    } catch (error) {
+      // Auth.js turns a refused sign-in into AccessDenied. Rethrowing its
+      // redirect is required — `signIn` signals success by throwing one.
+      if (error instanceof Error && error.message.includes("NEXT_REDIRECT")) throw error;
+      redirect("/login?denied=1");
+    }
   }
 
   return (
@@ -46,7 +55,7 @@ export default async function LoginPage({
           <p className="text-muted text-sm leading-relaxed mt-2">
             {selectedTemplate
               ? `Sign in to use the ${selectedTemplate.title} template.`
-              : "Sign in by email, then connect your Instagram professional account."}
+              : "OpenReply is invitation only. Sign in with the address you were invited on."}
           </p>
         </div>
 
@@ -58,6 +67,18 @@ export default async function LoginPage({
               </p>
               <p className="mt-2 text-sm font-semibold text-foreground">
                 {selectedTemplate.title}
+              </p>
+            </div>
+          )}
+
+          {denied && (
+            <div className="mb-5 border border-border bg-surface p-4">
+              <p className="text-sm font-semibold text-foreground">
+                That address is not invited
+              </p>
+              <p className="mt-1 text-sm text-muted">
+                Accounts are created by invitation. Ask an admin to invite you,
+                then sign in with the address they used.
               </p>
             </div>
           )}

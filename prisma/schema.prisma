@@ -29,6 +29,18 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  /// Whether this person may still obtain a session.
+  ///
+  /// Registration is invitation-only, but an invitation is consumed once and a
+  /// creator who has since connected accounts and run campaigns should not have
+  /// their access hang on a spent row. So admission grandfathers an existing
+  /// ACTIVE user, and revoking that access is this column.
+  ///
+  /// Suspending is deliberately not deleting: PlatformGrant.grantedBy is
+  /// onDelete: Restrict and Workspace cascades, so a delete would either fail
+  /// or take a creator's campaigns with it.
+  status        UserStatus @default(ACTIVE)
+
   accounts          Account[]
   sessions          Session[]
   ownedWorkspaces   Workspace[]       @relation("WorkspaceOwner")
@@ -707,6 +719,11 @@ enum Platform {
   FACEBOOK
   YOUTUBE
   TIKTOK
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
 }
 
 enum WorkspaceRole {

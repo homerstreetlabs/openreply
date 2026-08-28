@@ -2,7 +2,7 @@ import NextAuth, { type NextAuthConfig } from "next-auth";
 import Nodemailer from "next-auth/providers/nodemailer";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/db/client";
-import { provisionWorkspaceForSignIn } from "@/lib/workspace";
+import { admit, settleAdmission } from "@/lib/access/admission";
 import { sendEmail, RecipientSuppressedError as TransportSuppressed } from "@/lib/email/send";
 
 type AdapterPrismaClient = Parameters<typeof PrismaAdapter>[0];
@@ -52,6 +52,20 @@ export const authConfig = {
     }),
   ],
   callbacks: {
+    /**
+     * The registration gate.
+     *
+     * Auth.js calls this twice per sign-in, and each call precedes the side
+     * effect it has to prevent: once before the verification token is generated
+     * and the mail is sent, and again before `adapter.createUser`. So refusing
+     * here means an uninvited address produces no token, no email, and no user
+     * row — rather than an account that is created and then denied.
+     */
+    async signIn({ user }) {
+      const admission = await admit(user.email);
+      return admission.kind !== "refused";
+    },
+
     async session({ session, user }) {
       if (session.user) {
         session.user.id = user.id;
@@ -60,16 +74,14 @@ export const authConfig = {
     },
   },
   events: {
-    async createUser({ user }) {
-      if (user.id) {
-        await provisionWorkspaceForSignIn(user.id, user.email);
-      }
-    },
-    // See provisionWorkspaceForSignIn for the regression this accepts and why
-    // the explicit accept route covers it.
+    /**
+     * What signing in owes the user now depends on how they were admitted, so
+     * this is no longer "provision a workspace for everybody" — that was the
+     * second half of open registration. A platform admin gets none.
+     */
     async signIn({ user }) {
       if (user.id) {
-        await provisionWorkspaceForSignIn(user.id, user.email);
+        await settleAdmission(user.id, user.email);
       }
     },
   },
