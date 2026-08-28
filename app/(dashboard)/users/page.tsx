@@ -12,21 +12,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import type { PersonView, PendingInvite, People } from "@/lib/access/people";
-
-type Tier = PersonView["grant"] extends { tier: infer T } | null ? T : never;
-type Status = PersonView["status"];
-type Person = PersonView;
+import type { PersonView, People } from "@/lib/access/people";
+import type { PlatformGrantTier, UserStatus } from "@/app/generated/prisma/client";
 
 const TIER_LABELS = {
   SUPPORT_READ: "Support (read only)",
   SUPPORT_FULL: "Support (full)",
   ADMIN: "Admin",
-} satisfies Record<Tier, string>;
+} satisfies Record<PlatformGrantTier, string>;
 
-const TIERS: readonly Tier[] = ["SUPPORT_READ", "SUPPORT_FULL", "ADMIN"];
+const TIERS: readonly PlatformGrantTier[] = ["SUPPORT_READ", "SUPPORT_FULL", "ADMIN"];
 
-function displayName(person: Person): string {
+function displayName(person: PersonView): string {
   return person.name ?? person.email ?? person.userId;
 }
 
@@ -53,9 +50,9 @@ export default function UsersPage() {
 
   /** The three writes this page can make, named so the caller cannot invent a fourth. */
   type Write =
-    | { method: "POST"; body: { userId: string; tier: Tier; reason: string } }
+    | { method: "POST"; body: { userId: string; tier: PlatformGrantTier; reason: string } }
     | { method: "DELETE"; body: { grantId: string } }
-    | { method: "PATCH"; body: { userId: string; status: Status } };
+    | { method: "PATCH"; body: { userId: string; status: UserStatus } };
 
   async function send({ method, body }: Write, key: string) {
     setBusy(key);
@@ -71,7 +68,7 @@ export default function UsersPage() {
     setBusy(null);
   }
 
-  function grant(person: Person, tier: Tier) {
+  function grant(person: PersonView, tier: PlatformGrantTier) {
     const reason = prompt(
       `Why does ${displayName(person)} need ${TIER_LABELS[tier]} access?`
     );
@@ -82,7 +79,7 @@ export default function UsersPage() {
     );
   }
 
-  function setStatus(person: Person, status: Status) {
+  function setStatus(person: PersonView, status: UserStatus) {
     if (
       status === "SUSPENDED" &&
       !confirm(

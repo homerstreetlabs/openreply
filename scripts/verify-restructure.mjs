@@ -18,7 +18,6 @@ const ROOT = new URL("..", import.meta.url).pathname;
 
 let failures = 0;
 let checks = 0;
-let currentUnit = null;
 
 const only = (() => {
   const i = process.argv.indexOf("--unit");
@@ -27,7 +26,6 @@ const only = (() => {
 
 function unit(n, title, body) {
   if (only !== null && only !== n) return;
-  currentUnit = n;
   process.stdout.write(`\n[1mUnit ${n} — ${title}[0m\n`);
   body();
 }
@@ -89,8 +87,8 @@ function grep(pattern, dirs) {
   return hits;
 }
 
-function noneMatch(pattern, dirs, allow = []) {
-  const hits = grep(pattern, dirs).filter((f) => !allow.includes(f));
+function noneMatch(pattern, dirs) {
+  const hits = grep(pattern, dirs);
   return hits.length === 0 ? true : `found in: ${hits.join(", ")}`;
 }
 

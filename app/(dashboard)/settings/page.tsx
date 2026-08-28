@@ -1,10 +1,8 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import type { AccountOption } from "@/components/account-select";
 import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
 import type { Platform } from "@/app/generated/prisma/client";
-import { accountLabel } from "@/lib/campaigns/options";
 
 /**
  * What to call a connected account in copy aimed at the person who owns it.

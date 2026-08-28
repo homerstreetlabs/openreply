@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionScope } from "@/lib/session";
 import { accountDirectory } from "@/lib/accounts/directory";
-import EmptyOverview from "./empty";
 
 /**
  * Overview has no accountless state, so this only picks a default and forwards.
@@ -16,5 +15,23 @@ export default async function OverviewIndex() {
   const target = directory.defaultFor("insights");
   if (target) redirect(`/overview/${target.id}`);
 
-  return <EmptyOverview hasAccounts={directory.all.length > 0} />;
+  // Two different absences. No accounts at all is an onboarding step; accounts
+  // that exist but report nothing is a platform limitation, and telling someone
+  // to connect an account when they already have four reads as a bug.
+  const hasAccounts = directory.all.length > 0;
+
+  return (
+    <div className="panel rounded p-8 text-center">
+      <p className="text-sm text-foreground">
+        {hasAccounts
+          ? "None of your connected accounts report post analytics."
+          : "Connect an account to see how your posts are performing."}
+      </p>
+      {!hasAccounts && (
+        <a href="/settings" className="mt-4 inline-block text-sm text-accent hover:underline">
+          Connect an account
+        </a>
+      )}
+    </div>
+  );
 }
