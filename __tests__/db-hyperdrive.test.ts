@@ -32,6 +32,9 @@ vi.mock("@/app/generated/prisma/client", () => ({
 
 vi.mock("@/lib/cloudflare/bindings", () => ({
   tryBindings: () => bindings.current,
+  // No adapter context, so every call builds its own client. Per-request
+  // memoization is covered in db-request-scope.test.ts.
+  getCloudflareContextOrNull: () => null,
 }));
 
 import { getPrisma } from "../lib/db/client";

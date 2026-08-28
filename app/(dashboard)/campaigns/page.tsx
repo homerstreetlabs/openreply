@@ -109,8 +109,10 @@ export default function CampaignsPage() {
     }
   }, [selectedAccountId, actingFor]);
 
+  // The account selector needs the account list and nothing else, so it asks
+  // for the list rather than the full dashboard aggregation.
   useEffect(() => {
-    fetch("/api/dashboard/stats")
+    fetch("/api/instagram/accounts")
       .then((res) => res.json())
       .then((payload) => {
         if (payload.success) setAccounts(payload.data.instagramAccounts ?? []);

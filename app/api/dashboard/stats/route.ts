@@ -1,22 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUserId, getCurrentWorkspaceId } from "@/lib/auth";
+import { getSessionScope } from "@/lib/session";
 import { prisma } from "@/lib/db/client";
 import {
   calculateCtr,
+  countPerDay,
+  dailyDmBuckets,
   normalizeTopKeywords,
   summarizeDmStatuses,
 } from "@/lib/tracking/analytics";
 
 export async function GET(request: NextRequest) {
-  const workspaceId = await getCurrentWorkspaceId();
-  if (!workspaceId) {
+  // One lookup for both. React `cache()` does not memoize inside a Route
+  // Handler, so asking for the workspace and then the user would be two session
+  // queries rather than one.
+  const scope = await getSessionScope();
+  if (!scope) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
       { status: 401 }
     );
   }
-
-  const userId = await getCurrentUserId();
+  const { userId, workspaceId } = scope;
 
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -32,6 +36,10 @@ export async function GET(request: NextRequest) {
   const accountFilter: { connectedAccountId?: string } = selectedAccountId
     ? { connectedAccountId: selectedAccountId }
     : {};
+
+  const dayBuckets = dailyDmBuckets(todayStart);
+  const chartWindowStart = dayBuckets[0].start;
+  const chartWindowEnd = dayBuckets[dayBuckets.length - 1].end;
 
   const [
     workspace,
@@ -50,6 +58,7 @@ export async function GET(request: NextRequest) {
     recentLogs,
     user,
     contactRows,
+    sentThisChartWindow,
   ] = await Promise.all([
     prisma.workspace.findUnique({
       where: { id: workspaceId },
@@ -136,41 +145,31 @@ export async function GET(request: NextRequest) {
         connectedAccount: { select: { username: true } },
       },
     }),
-    userId
-      ? prisma.user.findUnique({
-          where: { id: userId },
-          select: { name: true, email: true },
-        })
-      : Promise.resolve(null),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    }),
     // Distinct people who have interacted, counted as "contacts".
     prisma.responseRun.findMany({
       where: { workspaceId, ...accountFilter },
       distinct: ["counterpartyId"],
       select: { counterpartyId: true },
     }),
-  ]);
-
-  const dailyDMs: { date: string; count: number }[] = [];
-  for (let i = 6; i >= 0; i--) {
-    const dayStart = new Date(todayStart);
-    dayStart.setDate(dayStart.getDate() - i);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
-
-    const count = await prisma.responseRun.count({
+    prisma.responseRun.findMany({
       where: {
         workspaceId,
         status: "SENT",
-        createdAt: { gte: dayStart, lt: dayEnd },
+        createdAt: { gte: chartWindowStart, lt: chartWindowEnd },
         ...accountFilter,
       },
-    });
+      select: { createdAt: true },
+    }),
+  ]);
 
-    dailyDMs.push({
-      date: dayStart.toLocaleDateString("en-US", { weekday: "short" }),
-      count,
-    });
-  }
+  const dailyDMs = countPerDay(
+    dayBuckets,
+    sentThisChartWindow.map((run) => run.createdAt)
+  );
 
   const monthlyStatusSummary = summarizeDmStatuses(
     dmStatusCountsThisMonth.map((row) => ({

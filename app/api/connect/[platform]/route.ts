@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentWorkspaceId } from "@/lib/auth";
+import { getCurrentWorkspaceId } from "@/lib/session";
 import { getBaseUrl } from "@/lib/env";
 import { adapterFor } from "@/lib/platforms/registry";
 import { lookupProviderApp, ProviderAppUnavailable } from "@/lib/platforms/provider-apps";
