@@ -10,6 +10,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
+import { accountLabel } from "@/lib/campaigns/options";
+import type { Platform } from "@/app/generated/prisma/client";
 import { readCache, writeCache } from "@/lib/client-cache";
 
 interface Campaign {
@@ -35,9 +37,9 @@ interface Campaign {
   isActive: boolean;
   wholeWordMatch: boolean;
   accountId: string;
-  instagramAccount: {
+  connectedAccount: {
     username: string;
-    instagramId: string;
+    platform: Platform;
   };
   reportShareSlug: string | null;
   reportShareEnabled: boolean;
@@ -110,10 +112,10 @@ export default function CampaignsPage() {
   }, [selectedAccountId, actingFor]);
 
   useEffect(() => {
-    fetch("/api/instagram/accounts")
+    fetch("/api/accounts")
       .then((res) => res.json())
       .then((payload) => {
-        if (payload.success) setAccounts(payload.data.instagramAccounts ?? []);
+        if (payload.success) setAccounts(payload.data.accounts ?? []);
       })
       .catch(console.error);
   }, []);
@@ -447,7 +449,7 @@ export default function CampaignsPage() {
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <h3 className="text-sm font-semibold truncate">{auto.name}</h3>
                   <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted">
-                    @{auto.instagramAccount.username}
+                    {accountLabel(auto.connectedAccount.platform, auto.connectedAccount.username)}
                   </span>
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full font-medium ${

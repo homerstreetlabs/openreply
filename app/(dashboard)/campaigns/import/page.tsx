@@ -26,11 +26,11 @@ export default function ImportCampaignsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/instagram/accounts")
+    fetch("/api/accounts")
       .then((res) => res.json())
       .then((payload) => {
         if (payload.success) {
-          const next = payload.data.instagramAccounts ?? [];
+          const next = payload.data.accounts ?? [];
           setAccounts(next);
           setSelectedAccountId(next[0]?.id ?? "");
         }

@@ -325,6 +325,43 @@ unit(6, "one invitation model", () => {
   });
 });
 
+// ─── Every unit ──────────────────────────────────────────────────────────────
+
+/**
+ * The check that was missing. Unit 2 deleted /api/instagram/accounts while three
+ * pickers still fetched it, and nothing caught it: a fetch erases types, so the
+ * callers compiled, 404'd at runtime, and silently rendered an empty account
+ * list. Campaign creation was impossible and every other gate stayed green.
+ */
+unit(0, "no surface fetches a route that was deleted", () => {
+  const FETCH = /fetch\(\s*[`"']\/api\/([^`"'?${]+)/g;
+
+  function routeExists(path) {
+    let dir = "app/api";
+    for (const segment of path.replace(/\/$/, "").split("/")) {
+      if (existsSync(join(ROOT, dir, segment))) {
+        dir = `${dir}/${segment}`;
+        continue;
+      }
+      const dynamic = readdirSync(join(ROOT, dir)).find((e) => e.startsWith("["));
+      if (!dynamic) return false;
+      dir = `${dir}/${dynamic}`;
+    }
+    return existsSync(join(ROOT, dir, "route.ts"));
+  }
+
+  const broken = [];
+  for (const file of [...sources("app"), ...sources("components")]) {
+    for (const match of read(file).matchAll(FETCH)) {
+      if (!routeExists(match[1])) broken.push(`${file} -> /api/${match[1]}`);
+    }
+  }
+
+  check("every fetched API route exists", () =>
+    broken.length === 0 ? true : broken.join("; ")
+  );
+});
+
 process.stdout.write(
   `\n${failures === 0 ? "[32m" : "[31m"}${checks - failures}/${checks} checks passed[0m\n`
 );

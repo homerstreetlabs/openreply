@@ -245,11 +245,11 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
 
   // Load accounts (both modes need them for the preview username + selector).
   useEffect(() => {
-    fetch("/api/instagram/accounts")
+    fetch("/api/accounts")
       .then((r) => r.json())
       .then((payload) => {
         if (!payload.success) return;
-        const next: AccountOption[] = payload.data.instagramAccounts ?? [];
+        const next: AccountOption[] = payload.data.accounts ?? [];
         setAccounts(next);
         setSelectedAccountId(
           (prev) => prev || payload.data.selectedInstagramAccountId || next[0]?.id || ""

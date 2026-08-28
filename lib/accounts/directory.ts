@@ -33,6 +33,13 @@ export interface ConnectedAccountRef {
   readonly externalId: string;
   /** Display name, already `@`-prefixed where the platform uses handles. */
   readonly label: string;
+  /**
+   * The raw handle or page name, unprefixed. Only for surfaces that imitate the
+   * platform's own UI, like the campaign preview that shows a creator what
+   * their DM looks like arriving. Everything that just names an account uses
+   * `label`, so the prefixing rule lives in one place.
+   */
+  readonly username: string;
 }
 
 /** A read surface a platform either implements or does not. */
@@ -75,6 +82,7 @@ function toRef(row: {
     platform: row.platform,
     externalId: row.instagramId,
     label: accountLabel(row.platform, row.username),
+    username: row.username,
   };
 }
 
