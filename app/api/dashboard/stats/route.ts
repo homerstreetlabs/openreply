@@ -3,6 +3,8 @@ import { getCurrentUserId, getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import {
   calculateCtr,
+  countPerDay,
+  dailyDmBuckets,
   normalizeTopKeywords,
   summarizeDmStatuses,
 } from "@/lib/tracking/analytics";
@@ -33,6 +35,10 @@ export async function GET(request: NextRequest) {
     ? { connectedAccountId: selectedAccountId }
     : {};
 
+  const dayBuckets = dailyDmBuckets(todayStart);
+  const chartWindowStart = dayBuckets[0].start;
+  const chartWindowEnd = dayBuckets[dayBuckets.length - 1].end;
+
   const [
     workspace,
     instagramAccount,
@@ -50,6 +56,7 @@ export async function GET(request: NextRequest) {
     recentLogs,
     user,
     contactRows,
+    sentThisChartWindow,
   ] = await Promise.all([
     prisma.workspace.findUnique({
       where: { id: workspaceId },
@@ -148,29 +155,21 @@ export async function GET(request: NextRequest) {
       distinct: ["counterpartyId"],
       select: { counterpartyId: true },
     }),
-  ]);
-
-  const dailyDMs: { date: string; count: number }[] = [];
-  for (let i = 6; i >= 0; i--) {
-    const dayStart = new Date(todayStart);
-    dayStart.setDate(dayStart.getDate() - i);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
-
-    const count = await prisma.responseRun.count({
+    prisma.responseRun.findMany({
       where: {
         workspaceId,
         status: "SENT",
-        createdAt: { gte: dayStart, lt: dayEnd },
+        createdAt: { gte: chartWindowStart, lt: chartWindowEnd },
         ...accountFilter,
       },
-    });
+      select: { createdAt: true },
+    }),
+  ]);
 
-    dailyDMs.push({
-      date: dayStart.toLocaleDateString("en-US", { weekday: "short" }),
-      count,
-    });
-  }
+  const dailyDMs = countPerDay(
+    dayBuckets,
+    sentThisChartWindow.map((run) => run.createdAt)
+  );
 
   const monthlyStatusSummary = summarizeDmStatuses(
     dmStatusCountsThisMonth.map((row) => ({
