@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 const jobs = vi.hoisted(() => ({
   reconcileComments: vi.fn(async () => undefined),
   refreshTokens: vi.fn(async () => undefined),
+  resetMonthlyUsage: vi.fn(async () => undefined),
   attachNextReel: vi.fn(async () => undefined),
   snapshotFollowers: vi.fn(async () => undefined),
   snapshotQuota: vi.fn(async () => undefined),
@@ -33,7 +34,13 @@ vi.mock("@/lib/runtime/dispatch", () => ({ advanceDueRuns }));
 vi.mock("@/lib/polling/comment-reconciler", () => ({
   reconcileComments: jobs.reconcileComments,
 }));
-vi.mock("@/lib/jobs/refresh-tokens", () => ({ refreshTokens: jobs.refreshTokens }));
+vi.mock("@/lib/jobs/refresh-tokens", () => ({
+  refreshTokens: jobs.refreshTokens,
+  resetMonthlyUsage: jobs.resetMonthlyUsage,
+  // The engine keys its fast tick off this, so the mock has to carry the real
+  // value or the dispatch table it builds is not the one that ships.
+  TOKEN_REFRESH_CRON: "*/5 * * * *",
+}));
 vi.mock("@/lib/jobs/attach-next-reel", () => ({ attachNextReel: jobs.attachNextReel }));
 vi.mock("@/lib/jobs/snapshot-followers", () => ({
   snapshotFollowers: jobs.snapshotFollowers,
@@ -56,13 +63,19 @@ vi.mock("@/lib/queue/consumer", () => ({ processQueueBatch: vi.fn() }));
 
 import engine from "@/workers/engine/index";
 
-const EXPECTED: Array<[string, keyof typeof jobs]> = [
-  ["*/5 * * * *", "reconcileComments"],
-  ["*/15 * * * *", "snapshotQuota"],
-  ["0 5 * * *", "refreshTokens"],
-  ["0 6 * * *", "attachNextReel"],
-  ["0 7 * * *", "snapshotFollowers"],
-  ["0 8 * * *", "refreshDerivedCapacity"],
+/**
+ * One tick can run several jobs, so this is a set per expression rather than a
+ * pair. The fast tick repairs tokens before anything spends one: YouTube's
+ * lives an hour and asks for ten minutes' notice, which a daily tick could
+ * never give it.
+ */
+const EXPECTED: Array<[string, Array<keyof typeof jobs>]> = [
+  ["*/5 * * * *", ["refreshTokens", "reconcileComments"]],
+  ["*/15 * * * *", ["snapshotQuota"]],
+  ["0 5 * * *", ["resetMonthlyUsage"]],
+  ["0 6 * * *", ["attachNextReel"]],
+  ["0 7 * * *", ["snapshotFollowers"]],
+  ["0 8 * * *", ["refreshDerivedCapacity"]],
 ];
 
 /**
@@ -89,13 +102,13 @@ beforeEach(() => {
 });
 
 describe("scheduled dispatch", () => {
-  for (const [cron, name] of EXPECTED) {
-    it(`routes ${cron} to ${name} and to nothing else`, async () => {
+  for (const [cron, names] of EXPECTED) {
+    it(`routes ${cron} to ${names.join(", ")} and to nothing else`, async () => {
       await tick(cron);
 
-      expect(jobs[name]).toHaveBeenCalledTimes(1);
+      for (const name of names) expect(jobs[name]).toHaveBeenCalledTimes(1);
       for (const other of Object.keys(jobs) as Array<keyof typeof jobs>) {
-        if (other !== name) expect(jobs[other]).not.toHaveBeenCalled();
+        if (!names.includes(other)) expect(jobs[other]).not.toHaveBeenCalled();
       }
     });
   }
@@ -152,8 +165,12 @@ describe("wrangler.engine.jsonc triggers", () => {
 
       await tick(cron);
 
+      // Every configured expression reaches a handler. How many jobs that
+      // handler runs is the dispatch table's business, asserted above.
       expect(warn).not.toHaveBeenCalled();
-      expect(Object.values(jobs).filter((j) => j.mock.calls.length)).toHaveLength(1);
+      expect(
+        Object.values(jobs).filter((j) => j.mock.calls.length).length
+      ).toBeGreaterThan(0);
       warn.mockRestore();
     });
   }
