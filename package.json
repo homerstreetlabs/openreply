@@ -21,7 +21,7 @@
     "@auth/prisma-adapter": "^2.11.2",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
-    "next": "^16.2.12",
+    "next": "^16.3.3",
     "next-auth": "^5.0.0-beta.31",
     "nodemailer": "^7.0.13",
     "pg": "^8.20.0",
@@ -32,7 +32,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.20.2",
+    "@opennextjs/cloudflare": "^1.20.4",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.1",
@@ -42,7 +42,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "dotenv": "^17.4.2",
     "eslint": "^9",
-    "eslint-config-next": "^16.2.6",
+    "eslint-config-next": "^16.3.3",
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "tsx": "^4.22.1",
