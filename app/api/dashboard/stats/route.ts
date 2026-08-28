@@ -10,9 +10,6 @@ import {
 } from "@/lib/tracking/analytics";
 
 export async function GET(request: NextRequest) {
-  // One lookup for both. React `cache()` does not memoize inside a Route
-  // Handler, so asking for the workspace and then the user would be two session
-  // queries rather than one.
   const scope = await getSessionScope();
   if (!scope) {
     return NextResponse.json(

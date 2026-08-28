@@ -15,7 +15,7 @@ export default function MetaReviewPage() {
       updatedAt="August 28, 2026"
     >
       <section>
-        <h2 className="text-xl font-bold text-white">What The App Does</h2>
+        <h2 className="text-xl font-bold">What The App Does</h2>
         <p className="mt-3">
           A business owner signs in by email and connects the accounts they
           already own. They create a campaign that names one or more keywords
@@ -32,7 +32,7 @@ export default function MetaReviewPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Instagram User Flow</h2>
+        <h2 className="text-xl font-bold">Instagram User Flow</h2>
         <p className="mt-3">
           The business connects an Instagram professional account through
           Instagram Business Login. OpenReply subscribes to comment and message
@@ -46,26 +46,26 @@ export default function MetaReviewPage() {
         </p>
         <ul className="mt-3 list-disc space-y-2 pl-5">
           <li>
-            <span className="font-semibold text-white">instagram_business_basic</span>{" "}
+            <span className="font-semibold">instagram_business_basic</span>{" "}
             identifies the connected account and lists the posts and reels a
             campaign can target.
           </li>
           <li>
-            <span className="font-semibold text-white">
+            <span className="font-semibold">
               instagram_business_manage_messages
             </span>{" "}
             sends the private reply to the commenter, and powers the dashboard
             inbox where the business reads and answers those conversations.
           </li>
           <li>
-            <span className="font-semibold text-white">
+            <span className="font-semibold">
               instagram_business_manage_comments
             </span>{" "}
             reads the comment that triggered the campaign and posts the optional
             public reply under it.
           </li>
           <li>
-            <span className="font-semibold text-white">
+            <span className="font-semibold">
               instagram_business_manage_insights
             </span>{" "}
             reads follower counts for the campaign reporting the business sees,
@@ -75,7 +75,7 @@ export default function MetaReviewPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Facebook Page User Flow</h2>
+        <h2 className="text-xl font-bold">Facebook Page User Flow</h2>
         <p className="mt-3">
           The business connects through Facebook Login for Business. One
           authorization returns every Page the person administers, and OpenReply
@@ -97,22 +97,22 @@ export default function MetaReviewPage() {
         </p>
         <ul className="mt-3 list-disc space-y-2 pl-5">
           <li>
-            <span className="font-semibold text-white">pages_show_list</span>{" "}
+            <span className="font-semibold">pages_show_list</span>{" "}
             lists the Pages the person administers so they can choose which ones
             to connect.
           </li>
           <li>
-            <span className="font-semibold text-white">pages_manage_metadata</span>{" "}
+            <span className="font-semibold">pages_manage_metadata</span>{" "}
             subscribes the chosen Page to the comment webhook. Without it no
             comment ever reaches the app.
           </li>
           <li>
-            <span className="font-semibold text-white">pages_messaging</span>{" "}
+            <span className="font-semibold">pages_messaging</span>{" "}
             sends the private reply to the commenter, and powers the dashboard
             inbox for those conversations.
           </li>
           <li>
-            <span className="font-semibold text-white">pages_read_engagement</span>{" "}
+            <span className="font-semibold">pages_read_engagement</span>{" "}
             reads the comment and the post or Reel it sits under, so the keyword
             can be matched and so the app can check that a reply is still
             eligible before attempting one.
@@ -133,7 +133,7 @@ export default function MetaReviewPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Data Handled</h2>
+        <h2 className="text-xl font-bold">Data Handled</h2>
         <p className="mt-3">
           For a connected account OpenReply stores the account or Page ID, its
           name, and its access token, encrypted at rest with AES-256-GCM. For a
@@ -149,7 +149,7 @@ export default function MetaReviewPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Compliance Position</h2>
+        <h2 className="text-xl font-bold">Compliance Position</h2>
         <p className="mt-3">
           OpenReply uses the official Instagram and Facebook APIs only. It does
           not ask for passwords, scrape either platform, or drive a browser.
@@ -165,9 +165,9 @@ export default function MetaReviewPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Review Test Notes</h2>
+        <h2 className="text-xl font-bold">Review Test Notes</h2>
         <p className="mt-3">
-          <span className="font-semibold text-white">Instagram.</span> Sign in
+          <span className="font-semibold">Instagram.</span> Sign in
           with the test credentials provided in the submission, open Settings and
           connect an Instagram professional account, create a campaign with the
           keyword LINK against one of that account&apos;s posts, then comment
@@ -175,7 +175,7 @@ export default function MetaReviewPage() {
           within seconds and the Logs page shows one entry for it.
         </p>
         <p className="mt-3">
-          <span className="font-semibold text-white">Facebook.</span> The same
+          <span className="font-semibold">Facebook.</span> The same
           path, choosing Connect Facebook in Settings and selecting a Page you
           administer. Create a campaign against one of that Page&apos;s posts or
           Reels, comment the keyword from a second account, and the Page sends

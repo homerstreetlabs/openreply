@@ -15,7 +15,7 @@ export default function DataDeletionPage() {
       updatedAt="August 28, 2026"
     >
       <section>
-        <h2 className="text-xl font-bold text-white">
+        <h2 className="text-xl font-bold">
           Disconnect An Account Or Page
         </h2>
         <p className="mt-3">
@@ -32,7 +32,7 @@ export default function DataDeletionPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">
+        <h2 className="text-xl font-bold">
           Remove OpenReply From Meta
         </h2>
         <p className="mt-3">
@@ -51,7 +51,7 @@ export default function DataDeletionPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Delete Your Data</h2>
+        <h2 className="text-xl font-bold">Delete Your Data</h2>
         <p className="mt-3">
           To have your stored data deleted, email{" "}
           <a
@@ -89,7 +89,7 @@ export default function DataDeletionPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Verification And Timing</h2>
+        <h2 className="text-xl font-bold">Verification And Timing</h2>
         <p className="mt-3">
           We may ask you to confirm control of the sign-in email address or the
           connected business account before deleting anything, because deletion
@@ -101,7 +101,7 @@ export default function DataDeletionPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Self-Hosted Instances</h2>
+        <h2 className="text-xl font-bold">Self-Hosted Instances</h2>
         <p className="mt-3">
           OpenReply is open source and can be run by anyone on their own
           infrastructure. If you are using an instance operated by someone other

@@ -12,10 +12,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
-    workspaceMember: { findFirst: vi.fn(), upsert: vi.fn() },
-    workspaceInvitation: { findMany: vi.fn(), update: vi.fn() },
+    workspaceMember: { findFirst: vi.fn() },
+    workspaceInvitation: { findMany: vi.fn() },
     workspace: { create: vi.fn() },
-    $transaction: vi.fn(),
   },
 }));
 
@@ -37,7 +36,6 @@ beforeEach(() => {
   mockPrisma.workspaceMember.findFirst.mockResolvedValue(membership);
   mockPrisma.workspaceInvitation.findMany.mockResolvedValue([]);
   mockPrisma.workspace.create.mockResolvedValue({ id: "ws_new", name: "New" });
-  mockPrisma.$transaction.mockResolvedValue([]);
 });
 
 describe("reading a workspace", () => {

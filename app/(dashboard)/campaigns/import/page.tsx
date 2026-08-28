@@ -25,8 +25,6 @@ export default function ImportCampaignsPage() {
   const [csv, setCsv] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Only the account list is needed here, so this asks for the list rather than
-  // the full dashboard aggregation.
   useEffect(() => {
     fetch("/api/instagram/accounts")
       .then((res) => res.json())

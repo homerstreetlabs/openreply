@@ -65,10 +65,8 @@ export const authConfig = {
         await provisionWorkspaceForSignIn(user.id, user.email);
       }
     },
-    // Accepting pending invitations belongs here rather than on the render
-    // path, where it cost every dashboard view a query that almost always
-    // matches nothing. See provisionWorkspaceForSignIn for the regression this
-    // accepts and why the explicit accept route covers it.
+    // See provisionWorkspaceForSignIn for the regression this accepts and why
+    // the explicit accept route covers it.
     async signIn({ user }) {
       if (user.id) {
         await provisionWorkspaceForSignIn(user.id, user.email);

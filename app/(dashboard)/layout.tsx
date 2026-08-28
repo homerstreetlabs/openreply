@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import DashboardShell from "@/components/dashboard-shell";
 import { getSession } from "@/lib/session";
-import { prisma } from "@/lib/db/client";
 import { ensureWorkspaceForUser, getWorkspaceForUser } from "@/lib/workspace";
 import { getPlatformScope } from "@/lib/tenancy/platform-scope";
 
@@ -17,14 +16,8 @@ export default async function DashboardLayout({
   }
   const userId = session.user.id;
 
-  // Three round trips, not six. The workspace and the platform grant depend
-  // only on the user, so they are asked for together; the account list is the
-  // one query that genuinely needs an answer first, since it is keyed on the
-  // workspace.
-  //
-  // Admin surfaces are hidden rather than shown and refused. A creator who sees
-  // Fleet and clicks into a 403 learns nothing except that the product has a
-  // room they are not allowed in.
+  // Two round trips, not six. Both depend only on the user, so neither has to
+  // wait for the other.
   const [existingWorkspace, scope] = await Promise.all([
     getWorkspaceForUser(userId),
     getPlatformScope(userId),
@@ -37,18 +30,13 @@ export default async function DashboardLayout({
     existingWorkspace ??
     (await ensureWorkspaceForUser(userId, session.user.email));
 
-  const accounts = await prisma.connectedAccount.findMany({
-    where: { workspaceId: workspace.id },
-    orderBy: { connectedAt: "desc" },
-    select: { username: true },
-  });
-
   return (
     <DashboardShell
+      // Admin surfaces are hidden rather than shown and refused. A creator who
+      // sees Fleet and clicks into a 403 learns nothing except that the product
+      // has a room they are not allowed in.
       isPlatformAdmin={scope !== null}
       workspaceName={workspace.name}
-      instagramUsername={accounts[0]?.username ?? null}
-      instagramAccountCount={accounts.length}
     >
       {children}
     </DashboardShell>

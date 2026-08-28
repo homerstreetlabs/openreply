@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { campaignOptions, platformName } from "../lib/campaigns/options";
+import { accountLabel, campaignOptions, platformName } from "../lib/campaigns/options";
 import type { Platform } from "../app/generated/prisma/client";
 
 const ALL: Platform[] = ["INSTAGRAM", "FACEBOOK", "YOUTUBE", "TIKTOK"];
@@ -47,6 +47,23 @@ describe("campaign options", () => {
   it("names every platform", () => {
     for (const platform of ALL) {
       expect(platformName(platform)).toBeTruthy();
+    }
+  });
+
+  /**
+   * Facebook stores the Page's name and YouTube the channel's title, so an "@"
+   * on those two prints "@My Business Page".
+   */
+  it("prefixes a handle but not a display name", () => {
+    expect(accountLabel("INSTAGRAM", "creator")).toBe("@creator");
+    expect(accountLabel("TIKTOK", "creator")).toBe("@creator");
+    expect(accountLabel("FACEBOOK", "My Business Page")).toBe("My Business Page");
+    expect(accountLabel("YOUTUBE", "Anojh's Channel")).toBe("Anojh's Channel");
+  });
+
+  it("labels every platform without dropping the name", () => {
+    for (const platform of ALL) {
+      expect(accountLabel(platform, "handle")).toContain("handle");
     }
   });
 });

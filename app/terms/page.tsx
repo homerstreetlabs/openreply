@@ -15,7 +15,7 @@ export default function TermsPage() {
       updatedAt="May 24, 2026"
     >
       <section>
-        <h2 className="text-xl font-bold text-white">Authorized Use</h2>
+        <h2 className="text-xl font-bold">Authorized Use</h2>
         <p className="mt-3">
           You may use OpenReply only with Instagram professional accounts you
           own or are authorized to manage. You are responsible for the campaigns,
@@ -24,7 +24,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Platform Compliance</h2>
+        <h2 className="text-xl font-bold">Platform Compliance</h2>
         <p className="mt-3">
           You agree to follow Meta Platform Terms, Instagram policies, applicable
           messaging rules, privacy laws, advertising rules, and anti-spam laws.
@@ -34,7 +34,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Availability</h2>
+        <h2 className="text-xl font-bold">Availability</h2>
         <p className="mt-3">
           OpenReply depends on third-party platforms including Meta, email,
           hosting, database, and queue providers. We work to operate the
@@ -43,7 +43,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Open-Source Core</h2>
+        <h2 className="text-xl font-bold">Open-Source Core</h2>
         <p className="mt-3">
           The public repository is MIT licensed. Hosted SaaS infrastructure,
           managed support, agency workflows, analytics, reports, and other paid

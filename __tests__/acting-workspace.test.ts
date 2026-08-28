@@ -29,7 +29,6 @@ import { actingWorkspace, PlatformAccessError } from "../lib/tenancy/acting-work
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSessionScope.mockResolvedValue({ userId: "user_1", workspaceId: "ws_own" });
-  mockGetCurrentUserId.mockResolvedValue("user_1");
   mockPrisma.workspaceMember.findUnique.mockResolvedValue(null);
   mockPrisma.platformGrant.findMany.mockResolvedValue([]);
   mockPrisma.adminAccessLog.create.mockResolvedValue({});

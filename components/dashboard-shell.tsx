@@ -8,16 +8,12 @@ interface DashboardShellProps {
   children: React.ReactNode;
   workspaceName: string;
   isPlatformAdmin: boolean;
-  instagramUsername: string | null;
-  instagramAccountCount: number;
 }
 
 export default function DashboardShell({
   children,
   workspaceName,
   isPlatformAdmin,
-  instagramUsername,
-  instagramAccountCount,
 }: DashboardShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -33,11 +29,7 @@ export default function DashboardShell({
       />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <TopBar
-          onMenuClick={() => setSidebarOpen(true)}
-          instagramUsername={instagramUsername}
-          instagramAccountCount={instagramAccountCount}
-        />
+        <TopBar onMenuClick={() => setSidebarOpen(true)} />
 
         {/* overflow-x-hidden: enabling vertical scrolling makes the browser
             allow horizontal scrolling too, which lets a wide child drag the

@@ -45,3 +45,21 @@ const PLATFORM_NAMES = {
 export function platformName(platform: Platform): string {
   return PLATFORM_NAMES[platform];
 }
+
+/**
+ * `ConnectedAccount.username` is a handle on two platforms and a display name
+ * on the other two: Facebook stores the Page's name and YouTube the channel's
+ * title, because neither hands out a handle at connect time. Prefixing all four
+ * with "@" prints "@My Business Page", which a creator reads as a bug in the
+ * product rather than in one template.
+ */
+const USERNAME_IS_HANDLE = {
+  INSTAGRAM: true,
+  FACEBOOK: false,
+  YOUTUBE: false,
+  TIKTOK: true,
+} satisfies Record<Platform, boolean>;
+
+export function accountLabel(platform: Platform, username: string): string {
+  return USERNAME_IS_HANDLE[platform] ? `@${username}` : username;
+}

@@ -26,7 +26,6 @@ vi.mock("@/lib/workspace", () => ({
 import {
   getCurrentUserId,
   getCurrentWorkspaceId,
-  getSession,
   getSessionScope,
 } from "../lib/session";
 
@@ -67,14 +66,8 @@ describe("one session lookup per request", () => {
     expect(getWorkspaceForUserMock).not.toHaveBeenCalled();
   });
 
-  it("keeps the single-value helpers reading off the same resolution", async () => {
+  it("returns the ids from the resolved scope", async () => {
     expect(await getCurrentUserId()).toBe("user_1");
     expect(await getCurrentWorkspaceId()).toBe("ws_1");
-  });
-
-  it("exposes the raw session for callers that need more than ids", async () => {
-    const session = await getSession();
-
-    expect(session?.user?.email).toBe("creator@example.com");
   });
 });

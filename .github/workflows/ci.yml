@@ -233,10 +233,8 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
 
-      # 24, because wrangler refuses to start on anything below 22 and both
-      # deploy steps are wrangler. Keep it in step with the `test` job above:
-      # a deploy that builds on a different major to the one the tests passed
-      # on is a difference nothing would report until it broke in production.
+      # Keep in step with the `test` job: deploying on a different major to the
+      # one the tests passed on is a difference nothing reports until production.
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

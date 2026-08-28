@@ -33,9 +33,6 @@ export async function actingWorkspace(
   requested: string | null,
   action: string
 ): Promise<ActingWorkspace | null> {
-  // Both halves of the session come from one lookup. Routes are where this is
-  // called, and React memoization does not apply there, so asking twice would
-  // genuinely be two session queries.
   const session = await getSessionScope();
   if (!requested || requested === session?.workspaceId) {
     return session ? { kind: "own", workspaceId: session.workspaceId } : null;

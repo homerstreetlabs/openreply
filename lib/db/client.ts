@@ -40,11 +40,6 @@ import { getCloudflareContextOrNull, tryBindings } from "@/lib/cloudflare/bindin
 
 const requestScope = new AsyncLocalStorage<{ client?: PrismaClient }>();
 
-/**
- * Keyed on the adapter's `ExecutionContext`, which is per invocation. Weak so a
- * finished request's client is not reachable from module scope, which is the
- * thing prisma/prisma#28193 punishes.
- */
 const clientsByExecutionContext = new WeakMap<object, PrismaClient>();
 
 /**

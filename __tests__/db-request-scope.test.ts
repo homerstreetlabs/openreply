@@ -97,7 +97,12 @@ describe("one client per request", () => {
       getPrisma();
     });
 
-    expect(constructions.count).toBe(1);
+    // The scope's client went to the store, not into the WeakMap, so the same
+    // context still has none of its own. Asserting only the count inside the
+    // scope would pass either way round.
+    getPrisma();
+
+    expect(constructions.count).toBe(2);
   });
 
   /**

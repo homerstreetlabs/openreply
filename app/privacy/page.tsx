@@ -16,7 +16,7 @@ export default function PrivacyPage() {
       updatedAt="August 28, 2026"
     >
       <section>
-        <h2 className="text-xl font-bold text-white">Data We Collect</h2>
+        <h2 className="text-xl font-bold">Data We Collect</h2>
         <p className="mt-3">From the business using OpenReply:</p>
         <ul className="mt-3 list-disc space-y-2 pl-5">
           <li>
@@ -56,7 +56,7 @@ export default function PrivacyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">How We Use Data</h2>
+        <h2 className="text-xl font-bold">How We Use Data</h2>
         <p className="mt-3">
           We use this data to authenticate users, connect Instagram and Facebook
           integrations, match comment keywords, send private replies and optional
@@ -68,7 +68,7 @@ export default function PrivacyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Instagram And Meta Data</h2>
+        <h2 className="text-xl font-bold">Instagram And Meta Data</h2>
         <p className="mt-3">
           OpenReply does not ask for Instagram or Facebook passwords, scrape
           either platform, or use browser automation. It acts only through the
@@ -86,7 +86,7 @@ export default function PrivacyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Subprocessors</h2>
+        <h2 className="text-xl font-bold">Subprocessors</h2>
         <p className="mt-3">
           The hosted service runs on Cloudflare Workers with a PostgreSQL
           database, and uses an email provider to send sign-in links and
@@ -96,7 +96,7 @@ export default function PrivacyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Retention And Deletion</h2>
+        <h2 className="text-xl font-bold">Retention And Deletion</h2>
         <p className="mt-3">
           A business can disconnect an Instagram account or a Facebook Page from
           Settings at any time. That deletes the stored token for it immediately
@@ -110,7 +110,7 @@ export default function PrivacyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Self-Hosted Instances</h2>
+        <h2 className="text-xl font-bold">Self-Hosted Instances</h2>
         <p className="mt-3">
           OpenReply is open source and can be deployed by anyone on their own
           infrastructure. This policy describes the hosted service we operate. On
@@ -120,7 +120,7 @@ export default function PrivacyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Contact</h2>
+        <h2 className="text-xl font-bold">Contact</h2>
         <p className="mt-3">
           For privacy questions or deletion requests, email{" "}
           <a

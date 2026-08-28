@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import type { AccountOption } from "@/components/account-select";
 import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
 import type { Platform } from "@/app/generated/prisma/client";
+import { accountLabel } from "@/lib/campaigns/options";
 
 /**
  * What to call a connected account in copy aimed at the person who owns it.
@@ -172,14 +173,14 @@ export default function SettingsPage() {
       </Suspense>
 
       <section className="panel rounded p-4 sm:p-6">
-        <h2 className="text-base font-semibold mb-6">Instagram Connection</h2>
+        <h2 className="text-base font-semibold mb-6">Connected Accounts</h2>
 
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3 py-3 border-b border-border">
             <div>
               <p className="text-sm font-medium text-foreground">Status</p>
               <p className="text-xs text-muted mt-0.5">
-                Comment webhooks and private replies depend on this connection.
+                Comment webhooks and replies depend on these connections.
               </p>
             </div>
             <span
@@ -197,7 +198,7 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-medium text-foreground">Accounts</p>
               <p className="text-xs text-muted mt-0.5">
-                {accounts.length} connected Instagram profile
+                {accounts.length} connected account
                 {accounts.length === 1 ? "" : "s"}
               </p>
             </div>
@@ -209,7 +210,7 @@ export default function SettingsPage() {
           <div className="space-y-3 py-3">
             {accounts.length === 0 && (
               <p className="text-sm text-muted">
-                Connect an Instagram professional account to launch campaigns.
+                Connect an account to launch campaigns.
               </p>
             )}
             {accounts.map((account) => (
@@ -219,7 +220,7 @@ export default function SettingsPage() {
               >
                 <div>
                   <p className="text-sm font-semibold text-foreground">
-                    @{account.username}
+                    {accountLabel(account.platform, account.username)}
                   </p>
                   <p className="mt-1 text-xs text-muted">
                     Token expires{" "}

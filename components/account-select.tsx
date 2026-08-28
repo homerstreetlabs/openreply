@@ -1,6 +1,7 @@
 "use client";
 
 import type { Platform } from "@/app/generated/prisma/client";
+import { accountLabel } from "@/lib/campaigns/options";
 
 export interface AccountOption {
   id: string;
@@ -39,7 +40,7 @@ export default function AccountSelect({
         {includeAll && <option value="all">All accounts</option>}
         {accounts.map((account) => (
           <option key={account.id} value={account.id}>
-            @{account.username}
+            {accountLabel(account.platform, account.username)}
           </option>
         ))}
       </select>

@@ -3,7 +3,7 @@
 /**
  * Top Bar
  *
- * Page title, mobile hamburger, and connection status.
+ * Page title and the mobile hamburger.
  */
 
 import { usePathname } from "next/navigation";
@@ -21,15 +21,9 @@ const pageTitles: Record<string, string> = {
 
 interface TopBarProps {
   onMenuClick: () => void;
-  instagramUsername: string | null;
-  instagramAccountCount: number;
 }
 
-export default function TopBar({
-  onMenuClick,
-  instagramUsername,
-  instagramAccountCount,
-}: TopBarProps) {
+export default function TopBar({ onMenuClick }: TopBarProps) {
   const pathname = usePathname();
   const title = pageTitles[pathname] ?? "Dashboard";
 
@@ -54,23 +48,6 @@ export default function TopBar({
         </button>
         <h1 className="truncate text-base font-semibold sm:text-lg">{title}</h1>
       </div>
-
-      {instagramAccountCount > 0 ? (
-        <p className="shrink-0 truncate text-sm text-muted">
-          {instagramAccountCount > 1
-            ? `${instagramAccountCount} accounts`
-            : `@${instagramUsername}`}
-        </p>
-      ) : (
-        <a
-          href="/api/connect/instagram"
-          className="shrink-0 whitespace-nowrap text-sm font-medium px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover"
-        >
-          {/* Full label needs more room than a 360px header has to spare. */}
-          <span className="sm:hidden">Connect</span>
-          <span className="hidden sm:inline">Connect Instagram</span>
-        </a>
-      )}
     </header>
   );
 }

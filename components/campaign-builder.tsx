@@ -244,7 +244,6 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   }, [selectedAccountId]);
 
   // Load accounts (both modes need them for the preview username + selector).
-  // The list endpoint, not the dashboard aggregation: this needs no analytics.
   useEffect(() => {
     fetch("/api/instagram/accounts")
       .then((r) => r.json())

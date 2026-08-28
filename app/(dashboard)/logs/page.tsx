@@ -69,8 +69,6 @@ export default function LogsPage() {
     }
   }, [page, statusFilter, selectedAccountId]);
 
-  // The account selector needs the account list and nothing else, so it asks
-  // for the list rather than the full dashboard aggregation.
   useEffect(() => {
     fetch("/api/instagram/accounts")
       .then((res) => res.json())
