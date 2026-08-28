@@ -12,34 +12,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-type Tier = "SUPPORT_READ" | "SUPPORT_FULL" | "ADMIN";
-type Status = "ACTIVE" | "SUSPENDED";
+import type { PersonView, PendingInvite, People } from "@/lib/access/people";
 
-interface Person {
-  userId: string;
-  email: string | null;
-  name: string | null;
-  status: Status;
-  grant: { id: string; tier: Tier; grantedAt: string; expiresAt: string | null } | null;
-  workspace: { id: string; name: string; accounts: number } | null;
-  createdAt: string;
-}
-
-interface PendingInvite {
-  id: string;
-  email: string;
-  kind: "creator" | "member";
-  invitedBy: string | null;
-  expiresAt: string;
-  deliveredAt: string | null;
-  deliveryError: string | null;
-}
-
-interface People {
-  admins: Person[];
-  creators: Person[];
-  pending: PendingInvite[];
-}
+type Tier = PersonView["grant"] extends { tier: infer T } | null ? T : never;
+type Status = PersonView["status"];
+type Person = PersonView;
 
 const TIER_LABELS = {
   SUPPORT_READ: "Support (read only)",

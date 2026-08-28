@@ -14,36 +14,8 @@ import DashboardSkeleton from "@/components/dashboard-skeleton";
 import StatCard from "@/components/stat-card";
 import StatusBadge from "@/components/status-badge";
 import { accountLabel } from "@/lib/campaigns/options";
+import type { DashboardSummary } from "@/app/api/dashboard/summary/route";
 import { runAction } from "@/lib/tracking/activity";
-import type { Platform } from "@/app/generated/prisma/client";
-
-interface RecentRun {
-  id: string;
-  counterpartyName: string | null;
-  triggerText: string;
-  status: string;
-  createdAt: string;
-  dmSentAt: string | null;
-  publicReplySentAt: string | null;
-  campaign: { name: string };
-  connectedAccount: { username: string; platform: Platform };
-}
-
-interface DashboardSummary {
-  userName: string | null;
-  contactsCount: number;
-  activeCampaigns: number;
-  repliesSent: number;
-  directMessages: number;
-  publicReplies: number;
-  skipped: number;
-  failed: number;
-  clicksThisMonth: number;
-  ctrThisMonth: number;
-  topKeywords: { keyword: string; count: number }[];
-  dailyRuns: { date: string; count: number }[];
-  recentRuns: RecentRun[];
-}
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);

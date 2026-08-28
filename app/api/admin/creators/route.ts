@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 const inviteSchema = z.object({
   email: z.string().email(),
-  creatorName: z.string().min(1).max(120).optional(),
+  invitedName: z.string().min(1).max(120).optional(),
 });
 
 export async function GET() {
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     const result = await inviteCreator({
       email: parsed.data.email,
-      invitedName: parsed.data.creatorName ?? null,
+      invitedName: parsed.data.invitedName ?? null,
       invitedByUserId: scope.userId,
       inviterName: inviter?.name ?? inviter?.email ?? null,
     });

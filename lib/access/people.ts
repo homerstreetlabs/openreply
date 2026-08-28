@@ -12,6 +12,10 @@
 import { prisma } from "@/lib/db/client";
 import type { PlatformGrantTier, UserStatus } from "@/app/generated/prisma/client";
 
+/**
+ * Dates are ISO strings, not Date objects. This model's only consumer is a JSON
+ * route, so declaring `Date` would be a type the client never actually receives.
+ */
 export interface PersonView {
   readonly userId: string;
   readonly email: string | null;
@@ -21,8 +25,8 @@ export interface PersonView {
   readonly grant: {
     readonly id: string;
     readonly tier: PlatformGrantTier;
-    readonly grantedAt: Date;
-    readonly expiresAt: Date | null;
+    readonly grantedAt: string;
+    readonly expiresAt: string | null;
   } | null;
   /** Their own workspace. A platform admin usually has none, by design. */
   readonly workspace: {
@@ -30,7 +34,7 @@ export interface PersonView {
     readonly name: string;
     readonly accounts: number;
   } | null;
-  readonly createdAt: Date;
+  readonly createdAt: string;
 }
 
 export interface PendingInvite {
@@ -38,8 +42,8 @@ export interface PendingInvite {
   readonly email: string;
   readonly kind: "creator" | "member";
   readonly invitedBy: string | null;
-  readonly expiresAt: Date;
-  readonly deliveredAt: Date | null;
+  readonly expiresAt: string;
+  readonly deliveredAt: string | null;
   readonly deliveryError: string | null;
 }
 
@@ -118,7 +122,14 @@ export async function listPeople(): Promise<People> {
       email: user.email,
       name: user.name,
       status: user.status,
-      grant: user.platformGrants[0] ?? null,
+      grant: user.platformGrants[0]
+        ? {
+            id: user.platformGrants[0].id,
+            tier: user.platformGrants[0].tier,
+            grantedAt: user.platformGrants[0].grantedAt.toISOString(),
+            expiresAt: user.platformGrants[0].expiresAt?.toISOString() ?? null,
+          }
+        : null,
       workspace: workspace
         ? {
             id: workspace.id,
@@ -126,7 +137,7 @@ export async function listPeople(): Promise<People> {
             accounts: workspace._count.connectedAccounts,
           }
         : null,
-      createdAt: user.createdAt,
+      createdAt: user.createdAt.toISOString(),
     };
   });
 
@@ -139,8 +150,8 @@ export async function listPeople(): Promise<People> {
         email: invite.email,
         kind: "creator" as const,
         invitedBy: invite.invitedBy?.name ?? invite.invitedBy?.email ?? null,
-        expiresAt: invite.expiresAt,
-        deliveredAt: invite.deliveredAt,
+        expiresAt: invite.expiresAt.toISOString(),
+        deliveredAt: invite.deliveredAt?.toISOString() ?? null,
         deliveryError: invite.deliveryError,
       })),
       ...memberInvites.map((invite) => ({
@@ -148,8 +159,8 @@ export async function listPeople(): Promise<People> {
         email: invite.email,
         kind: "member" as const,
         invitedBy: invite.invitedBy?.name ?? invite.invitedBy?.email ?? null,
-        expiresAt: invite.expiresAt,
-        deliveredAt: invite.deliveredAt,
+        expiresAt: invite.expiresAt.toISOString(),
+        deliveredAt: invite.deliveredAt?.toISOString() ?? null,
         deliveryError: invite.deliveryError,
       })),
     ],

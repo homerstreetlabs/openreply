@@ -16,7 +16,7 @@ type InvitationStatus = "PENDING" | "ACCEPTED" | "REVOKED" | "EXPIRED";
 interface Invitation {
   id: string;
   email: string;
-  creatorName: string | null;
+  invitedName: string | null;
   status: InvitationStatus;
   deliveredAt: string | null;
   deliveryError: string | null;
@@ -73,7 +73,7 @@ export default function CreatorsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
-  const [creatorName, setCreatorName] = useState("");
+  const [invitedName, setCreatorName] = useState("");
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
@@ -104,7 +104,7 @@ export default function CreatorsPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         email: email.trim(),
-        creatorName: creatorName.trim() || undefined,
+        invitedName: invitedName.trim() || undefined,
       }),
     });
     const payload = await response.json();
@@ -153,7 +153,7 @@ export default function CreatorsPage() {
             className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
           />
           <input
-            value={creatorName}
+            value={invitedName}
             onChange={(e) => setCreatorName(e.target.value)}
             placeholder="Name (optional)"
             className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
@@ -191,9 +191,9 @@ export default function CreatorsPage() {
                     <tr key={invite.id} className="border-b border-border last:border-0">
                       <td className="px-4 py-3">
                         <div className="font-medium text-foreground">
-                          {invite.creatorName || invite.email}
+                          {invite.invitedName || invite.email}
                         </div>
-                        {invite.creatorName && (
+                        {invite.invitedName && (
                           <div className="text-xs text-muted">{invite.email}</div>
                         )}
                       </td>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionScope } from "@/lib/session";
 import { prisma } from "@/lib/db/client";
+import type { Platform } from "@/app/generated/prisma/client";
 import {
   calculateCtr,
   countPerDay,
@@ -10,6 +11,39 @@ import {
 } from "@/lib/tracking/analytics";
 
 export const runtime = "nodejs";
+
+/**
+ * Exported so the page renders against the type the route actually returns.
+ * A field renamed on one side and not the other is invisible across a fetch,
+ * which is exactly how the creators page ended up showing email addresses.
+ */
+export interface DashboardSummary {
+  userName: string | null;
+  contactsCount: number;
+  activeCampaigns: number;
+  repliesSent: number;
+  directMessages: number;
+  publicReplies: number;
+  skipped: number;
+  failed: number;
+  clicksThisMonth: number;
+  ctrThisMonth: number;
+  topKeywords: { keyword: string; count: number }[];
+  dailyRuns: { date: string; count: number }[];
+  recentRuns: RecentRun[];
+}
+
+export interface RecentRun {
+  id: string;
+  counterpartyName: string | null;
+  triggerText: string;
+  status: string;
+  createdAt: string;
+  dmSentAt: string | null;
+  publicReplySentAt: string | null;
+  campaign: { name: string };
+  connectedAccount: { username: string; platform: Platform };
+}
 
 /**
  * The dashboard tiles and chart.
