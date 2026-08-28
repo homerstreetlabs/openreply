@@ -76,6 +76,9 @@ jobs:
     environment: production
     permissions:
       contents: read
+      # The migration guard reads this environment's deployment history to find
+      # out what is actually live.
+      deployments: read
 
     # One deploy at a time, and never cancel one that is running. This job
     # uploads two Workers in sequence, so a cancellation between them leaves the
@@ -89,9 +92,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The migration guard diffs the range the push covers, so it needs the
-          # commit the push started from. The default shallow clone has only the
-          # tip.
+          # The migration guard diffs against a commit that may be many pushes
+          # back, whatever last reached production. The default shallow clone
+          # has only the tip.
           fetch-depth: 0
 
       # This job deliberately never runs `prisma migrate deploy`. The database
@@ -105,12 +108,22 @@ jobs:
       # The gap that leaves is a merge that adds a migration, which would ship
       # code expecting columns the database does not have. So refuse that push
       # and make the operator say the migration is applied.
+      #
+      # What it compares against is the last commit that actually reached
+      # production, never merely what this push touched. A push range answers
+      # the wrong question: block a migration, merge something unrelated, and
+      # that second push adds no migration of its own, passes, and deploys the
+      # blocked one's code against the un-migrated database anyway. The
+      # deployment records that `environment: production` writes are the only
+      # thing here that knows what is live, so they are the base.
       - name: Guard against unapplied migrations
         # `github.event.inputs` values are strings, so `!inputs...` would read
         # the string "false" as truthy and skip the guard in exactly the case it
         # is wanted. Compare against "true" instead.
         if: github.event.inputs.migrations_already_applied != 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
@@ -119,51 +132,93 @@ jobs:
 
           rerun="Re-run this workflow from the Actions tab with 'migrations_already_applied' ticked."
 
-          if [ "$EVENT" != "push" ]; then
-            echo "A manual run covers no pushed range, so it cannot work out which"
-            echo "migrations are new."
+          # Usable means present in this clone. fetch-depth: 0 covers anything
+          # still reachable from a ref, but a commit that was rewritten away is
+          # gone, and an all-zeroes SHA is how a push reports having no parent.
+          usable() {
+            case "$1" in
+              "" | 0000000000000000000000000000000000000000) return 1 ;;
+            esac
+            git cat-file -e "$1^{commit}" 2>/dev/null
+          }
+
+          base=""
+          source=""
+          # Why the base is not the deployment record, if it ends up not being.
+          fell_back="there is no deployment on record"
+
+          deployments=""
+          if ! deployments=$(gh api \
+                 "repos/$REPO/deployments?environment=production&per_page=100" \
+                 --jq '.[] | "\(.id) \(.sha)"' 2>&1); then
+            echo "Could not read this environment's deployment history:"
+            printf '%s\n' "$deployments" | sed 's/^/  /'
             echo
-            echo "Confirm the database is up to date, then re-run with"
-            echo "'migrations_already_applied' ticked."
-            echo "::error::A manual deploy must confirm that migrations are applied."
-            exit 1
+            deployments=""
+            fell_back="the deployment history could not be read"
           fi
 
-          # github.event.before is all-zeroes when the branch did not exist
-          # before, and points at a discarded commit after a force push. Neither
-          # gives a range to diff, so fail rather than let `git diff` decide.
-          have_before=yes
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            have_before=no
-          elif ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            have_before=no
+          # Newest first. This run has a deployment record of its own already,
+          # sitting in_progress, so insisting on "success" is also what skips it.
+          #
+          # A here-string rather than a pipe: a pipe would run the loop in a
+          # subshell and "base" would not survive it.
+          while read -r id sha; do
+            [ -n "$id" ] || continue
+            state=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" \
+                      --jq '.[0].state // ""' 2>/dev/null || true)
+            [ "$state" = "success" ] || continue
+
+            # The most recent success is what is live. An older one would be the
+            # wrong answer, so stop here either way.
+            if usable "$sha"; then
+              base="$sha"
+              source="the last successful production deployment, #$id"
+            else
+              echo "The last successful production deployment, #$id, is $sha,"
+              echo "which is not in this clone, so history was rewritten under"
+              echo "it. Falling back to the pushed range, which is narrower."
+              echo
+              fell_back="deployment #$id's commit is missing from this clone"
+            fi
+            break
+          done <<< "$deployments"
+
+          # Fallback, not the primary. This is also the bootstrap path: the very
+          # first run has no successful deployment to compare against, and
+          # failing closed there would mean it could never make one.
+          if [ -z "$base" ] && [ "$EVENT" = "push" ] && usable "$BEFORE"; then
+            base="$BEFORE"
+            source="the commit this push started from; $fell_back"
           fi
 
-          if [ "$have_before" = "no" ]; then
-            echo "The commit this push started from is not in this clone:"
-            echo "  $BEFORE"
-            echo
-            echo "That is what a force push or a re-created branch looks like, and it"
-            echo "leaves nothing to compare against."
+          if [ -z "$base" ]; then
+            echo "There is nothing to compare against: $fell_back, and this run"
+            echo "has no usable pushed range either, which is what a manual run,"
+            echo "a force push, or a re-created branch looks like."
             echo
             echo "$rerun"
-            echo "::error::Cannot work out which migrations this push added."
+            echo "::error::Cannot work out which migrations are not yet deployed."
             exit 1
           fi
+
+          echo "Comparing $AFTER against $base"
+          echo "  ($source)"
+          echo
 
           # A migration is a directory, so only paths nested one level below
           # prisma/migrations/ count. That is also what skips
           # migration_lock.toml, which sits directly in it.
           added=$(
-            git diff --name-only --diff-filter=A "$BEFORE" "$AFTER" -- prisma/migrations \
+            git diff --name-only --diff-filter=A "$base" "$AFTER" -- prisma/migrations \
               | awk -F/ 'NF > 3 { print $3 }' \
               | sort -u
           )
 
           if [ -n "$added" ]; then
-            echo "This push adds migrations that CI cannot apply:"
+            echo "These migrations are not in production yet, and CI cannot apply them:"
             echo
-            echo "$added" | sed 's/^/  /'
+            printf '%s\n' "$added" | sed 's/^/  /'
             echo
             echo "Run 'pnpm db:migrate' against production from a machine the database"
             echo "allows, then deploy."
@@ -173,7 +228,7 @@ jobs:
             exit 1
           fi
 
-          echo "No migrations added between $BEFORE and $AFTER."
+          echo "No migrations added since $base."
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4

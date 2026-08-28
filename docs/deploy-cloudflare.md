@@ -402,30 +402,45 @@ one ends with CI holding a route into the production database, which is a larger
 problem than running one command by hand.
 
 That leaves a real gap. A merge that adds a migration would otherwise deploy code
-expecting columns the database does not have. So the job refuses to deploy it:
+expecting columns the database does not have. So the job refuses to deploy it.
 
-- **A push that adds no directory under `prisma/migrations/`** deploys.
-- **A push that adds one or more** fails before installing anything, naming each new
-  migration. Run `pnpm db:migrate` as in step 3, from a machine the database allows,
-  then go to the Actions tab, run the CI workflow manually against `main`, and tick
-  **migrations_already_applied**. A manual run with the box ticked skips the guard
-  and deploys.
-- **A force push to `main`**, or any push whose starting commit is no longer in the
-  repository, fails too. There is no range to compare, and guessing is worse than
-  stopping. The same manual run clears it.
-- **A manual run without the box ticked** fails on purpose. A manual run covers no
-  pushed range, so it cannot work out what is new, and it should not pretend it can.
+What it compares against is the commit that last reached production, not the range
+the push happens to cover. That distinction is the whole point. A push range would
+let the problem through by the side door: block a migration, merge something
+unrelated, and that second push adds no migration of its own, passes, and deploys
+the blocked one's code against the un-migrated database anyway. The deployment
+records that `environment: production` writes are the only thing in CI that knows
+what is actually live, so the guard reads them, which is what the job's
+`deployments: read` permission is for. It takes the most recent deployment whose
+latest status is `success`; this run's own record is `in_progress` by then, so it
+is skipped without any special case.
+
+The log always names the base commit it compared against and where that base came
+from. If it does not say, do not trust the result.
+
+- **Nothing added under `prisma/migrations/` since that commit** deploys.
+- **Anything added** fails before installing anything, naming each migration. Run
+  `pnpm db:migrate` as in step 3, from a machine the database allows, then go to
+  the Actions tab, run the CI workflow manually against `main`, and tick
+  **migrations_already_applied**, which skips the guard.
+- **No successful deployment on record yet** falls back to the pushed range and says
+  so. This is the first run on a fresh repository, and failing there would mean the
+  workflow could never make the deployment record it wants to read.
+- **A deployment on record whose commit is no longer in the repository**, after
+  history was rewritten under it, falls back the same way and says so. So does a
+  deployment history the API refuses to return.
+- **Neither a base nor a usable range** fails. That is a manual run or a force push
+  on a repository with no successful deployment yet. There is nothing to compare and
+  guessing is worse than stopping; the ticked box clears it.
+
+Because the base is what is live rather than what moved, a manual run no longer
+needs the box ticked just to have something to compare against. It still needs it to
+get past a migration the guard can see is undeployed, which is the case the box is
+for.
 
 Migrations in this schema have been additive, so applying one before its code
 deploys is safe. Keep it that way: a migration that drops or renames a column has to
 be split across two deploys whatever CI does.
-
-**Do not merge past a blocked deploy.** The guard looks at one push, not at what is
-actually live, so it has one blind spot: if a push that adds a migration fails the
-guard and you merge something else instead of applying it, that next push adds no
-migration of its own, passes, and deploys the first push's code against the
-un-migrated database. Nothing downstream catches that. When the guard fires, apply
-the migration before the next merge.
 
 `DATABASE_URL` is set in the job, but to a placeholder rather than the real
 connection string. The OpenNext build runs `prisma generate`, which wants a
