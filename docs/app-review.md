@@ -60,7 +60,7 @@ Same app, same review submission, one more set of permissions. Facebook is where
 - `pages_messaging`, which authorises the private reply
 - `pages_manage_metadata` and `pages_show_list`, which the `feed` comment webhook needs
 - `pages_read_engagement`, to read `can_reply_privately` before spending the single allowed reply
-- `business_management`, required by the Messenger use case
+- `business_management`, granted by the Messenger use case as required and non-removable, so it appears in the submission even though the connect flow does not request it and no code calls a Business Manager endpoint
 - `pages_manage_engagement`, only if you post public comment replies on Facebook
 
 ### The screencast requirement that fails submissions
@@ -69,7 +69,7 @@ Same app, same review submission, one more set of permissions. Facebook is where
 
 Record the message actually being sent from your app and landing in a Messenger inbox, in one take. A screenshot of the sent message is the most common reason a `pages_messaging` submission is rejected.
 
-`business_management` is required by the use case rather than chosen, so say that in the justification. Reviewers ask why a comment-reply tool wants business management, and "the Messenger use case grants it as required and non-removable" is the honest and sufficient answer.
+`business_management` is required by the use case rather than chosen, so say that in the justification. Reviewers ask why a comment-reply tool wants business management, and "the Messenger use case grants it as required and non-removable, and the app neither requests it at the consent screen nor calls a Business Manager endpoint" is the honest and sufficient answer.
 
 ---
 

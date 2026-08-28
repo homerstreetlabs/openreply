@@ -20,20 +20,28 @@ function graphBase() {
 }
 
 /**
- * The permissions the "Engage with customers on Messenger from Meta" use case
- * grants, plus `pages_read_engagement` as an optional on the same use case.
+ * The permissions this flow actually uses, which is a subset of what the
+ * "Engage with customers on Messenger from Meta" use case grants.
  *
  * `pages_manage_metadata` and `pages_show_list` are what the `feed` comment
  * webhook needs, and `pages_messaging` is the only permission the private reply
- * itself needs. Adding `pages_manage_engagement` for public comment replies
- * requires the separate "Manage everything on your Page" use case.
+ * itself needs. `pages_read_engagement` is an optional on the same use case,
+ * and reads `can_reply_privately` before the one allowed reply is spent.
+ * Adding `pages_manage_engagement` for public comment replies requires the
+ * separate "Manage everything on your Page" use case.
+ *
+ * `business_management` is deliberately absent. The use case grants it as
+ * required and non-removable, so it still belongs in the App Review submission
+ * (see docs/app-review.md), but nothing here calls a Business Manager
+ * endpoint: Pages come from `/me/accounts` under `pages_show_list`, and the
+ * webhook subscribe uses the Page token. Asking for it at the consent screen
+ * would request authority the app never exercises.
  */
 export const FACEBOOK_SCOPES = [
   "pages_show_list",
   "pages_manage_metadata",
   "pages_messaging",
   "pages_read_engagement",
-  "business_management",
 ] as const;
 
 export function getFacebookAuthorizationUrl(redirectUri: string, state: string): string {

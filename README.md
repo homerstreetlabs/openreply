@@ -30,11 +30,15 @@ The DM is not the universal capability. The public comment reply is.
 | --- | --- | --- | --- | --- |
 | Public reply under the comment | yes | yes | yes | yes |
 | DM the commenter | yes, 24h | yes, 7 days | impossible, no messaging API | prohibited outside VN/ID/TH |
-| Connect from the dashboard today | yes | yes | not yet | not yet |
+| Connect from the dashboard | yes | yes | yes | yes |
 
-YouTube and TikTok have shipped adapters, capability gating, and quota accounting, and
-TikTok has a signed webhook endpoint. Neither has an OAuth connect flow yet. Their
-developer applications take weeks, so [docs/setup.md](docs/setup.md) covers them now.
+All four have shipped adapters, an OAuth connect flow, capability gating, and quota
+accounting. A platform's connect button appears once its credentials exist: set
+`YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET` and YouTube lights up on the next load,
+with no deploy and no flag to flip.
+
+What takes the time is the developer application on each platform's side, not the code.
+[docs/setup.md](docs/setup.md) covers all four.
 
 ## Features
 

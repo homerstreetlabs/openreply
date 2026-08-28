@@ -463,8 +463,19 @@ export default async function Home() {
       </section>
 
       <footer className="border-t border-zinc-200 py-8">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 text-sm text-zinc-500 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-7xl flex-col items-center gap-4 px-5 text-sm text-zinc-500 sm:flex-row sm:justify-between sm:px-6 lg:px-8">
           <span className="font-semibold text-zinc-600">OpenReply</span>
+          <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+            <Link href="/privacy" className="transition hover:text-zinc-900">
+              Privacy
+            </Link>
+            <Link href="/terms" className="transition hover:text-zinc-900">
+              Terms
+            </Link>
+            <Link href="/data-deletion" className="transition hover:text-zinc-900">
+              Data Deletion
+            </Link>
+          </nav>
           <a
             href={GITHUB_URL}
             target="_blank"

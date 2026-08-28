@@ -3,6 +3,19 @@
 import { Suspense, useEffect, useState } from "react";
 import type { AccountOption } from "@/components/account-select";
 import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
+import type { Platform } from "@/app/generated/prisma/client";
+
+/**
+ * What to call a connected account in copy aimed at the person who owns it.
+ * A Facebook connection is a Page, not an account, and the confirm dialog is
+ * the last thing someone reads before an irreversible disconnect.
+ */
+const ACCOUNT_NOUN = {
+  INSTAGRAM: "Instagram account",
+  FACEBOOK: "Facebook Page",
+  YOUTUBE: "YouTube channel",
+  TIKTOK: "TikTok account",
+} satisfies Record<Platform, string>;
 
 interface ConnectablePlatform {
   platform: string;
@@ -87,16 +100,25 @@ export default function SettingsPage() {
     if (payload.success) setMembersData(payload.data);
   }
 
-  async function disconnectInstagram(instagramAccountId: string) {
-    if (!confirm("Disconnect Instagram? Campaigns for this account will stop sending DMs.")) {
+  async function disconnectAccount(account: {
+    id: string;
+    username: string;
+    platform: Platform;
+  }) {
+    const label = ACCOUNT_NOUN[account.platform];
+    if (
+      !confirm(
+        `Disconnect ${label} ${account.username}? Campaigns for it will stop responding to comments.`
+      )
+    ) {
       return;
     }
 
-    setBusy(`disconnect:${instagramAccountId}`);
+    setBusy(`disconnect:${account.id}`);
     await fetch("/api/instagram/disconnect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instagramAccountId }),
+      body: JSON.stringify({ instagramAccountId: account.id }),
     });
     window.location.reload();
   }
@@ -208,7 +230,7 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => disconnectInstagram(account.id)}
+                  onClick={() => disconnectAccount(account)}
                   disabled={busy === `disconnect:${account.id}`}
                   className="inline-flex items-center justify-center rounded border border-error/20 px-4 py-2 text-sm font-medium text-error transition-all hover:border-error/40 hover:bg-error/10 disabled:opacity-50"
                 >

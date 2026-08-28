@@ -288,7 +288,7 @@ In the app dashboard add **Engage with customers on Messenger from Meta**. These
 | `pages_messaging` | Authorises the private reply. The only permission the send needs. |
 | `pages_manage_metadata` | Required for the `feed` webhook that delivers comment events. |
 | `pages_show_list` | Required alongside it for the same webhook. |
-| `business_management` | Required by the use case. Call it out in App Review. |
+| `business_management` | Granted by the use case as required and non-removable. Declare it in App Review. OpenReply does not request it at the consent screen and calls no Business Manager endpoint. |
 | `public_profile` | Shared with your Instagram use case. See the warning below. |
 
 Tick **`pages_read_engagement`** as an optional on the same use case, so you can read a comment's `can_reply_privately` flag before spending the one reply you get. OpenReply requests it.
@@ -313,7 +313,7 @@ https://openreply-web.your-subdomain.workers.dev/api/connect/facebook/callback
 
 The older `/api/facebook/callback` still works. Keep both listed through the cutover.
 
-Set `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` in your environment. The connect flow requests `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, `pages_read_engagement`, and `business_management`.
+Set `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` in your environment. The connect flow requests `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, and `pages_read_engagement` — the four it actually uses. It does not request `business_management`, even though the use case grants it, because nothing here calls a Business Manager endpoint. That does not remove it from the App Review submission; see [app-review.md](app-review.md).
 
 Connecting brings across every Page you can message, so one authorisation enrols all of them.
 
