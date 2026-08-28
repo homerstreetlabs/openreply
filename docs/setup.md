@@ -534,7 +534,9 @@ Everything above runs OpenReply for accounts you own. This section is for hostin
 
 Cross-creator access is deliberately not workspace membership. A platform admin is not a member of every workspace, because membership is what a creator sees in their own member list, and an operator appearing there would be alarming and wrong. Access comes from a `PlatformGrant` row instead, so both the standing permission and each use of it are recorded.
 
-There is no UI for issuing the first grant. Sign in once so your `User` row exists, then insert it directly:
+Registration is invitation-only, so a fresh install has nobody who can send the first invitation. Set `BOOTSTRAP_ADMIN_EMAILS` to your address, sign in, then open **Users** and grant yourself `ADMIN`. The variable only applies while `PlatformGrant` is completely empty, so it disarms itself the moment that first grant exists and leaving it set cannot become a standing backdoor.
+
+After that, every grant, revoke and suspend happens on the Users page, and each one is recorded in `AdminAccessLog`. The SQL below is the escape hatch for an install where you cannot sign in at all:
 
 ```sql
 INSERT INTO "PlatformGrant" (id, "userId", tier, "grantedByUserId", reason)

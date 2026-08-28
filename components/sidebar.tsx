@@ -21,6 +21,7 @@ const navItems = [
 /** Cross-creator surfaces. Hidden entirely without a platform grant. */
 const adminNavItems = [
   { label: "Fleet", href: "/fleet" },
+  { label: "Users", href: "/users" },
   { label: "Creators", href: "/creators" },
   { label: "Diagnostics", href: "/diagnostics" },
 ];
