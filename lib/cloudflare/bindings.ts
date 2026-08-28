@@ -115,7 +115,25 @@ export function tryBindings(): OpenReplyEnv | null {
   return (context.env ?? null) as OpenReplyEnv | null;
 }
 
-function getCloudflareContextOrNull(): { env?: unknown } | null {
+/**
+ * The adapter's per-invocation context, or null off Cloudflare.
+ *
+ * `getCloudflareContext()` throws when nothing has populated the context —
+ * plain `next dev` without `initOpenNextCloudflareForDev`, vitest, scripts — and
+ * a missing context is a normal condition in all three, so it is reported as
+ * null rather than raised.
+ *
+ * `ctx` is the request's `ExecutionContext`. OpenNext allocates the whole
+ * context object per invocation inside `runWithCloudflareRequestContext`, so
+ * `ctx` is the identity of the current request and is the only per-request key
+ * the web Worker actually offers. `lib/db/client.ts` uses it as one.
+ *
+ * Typed structurally rather than as the adapter's `CloudflareContext`: that type
+ * names `ExecutionContext`, which only resolves with `@cloudflare/workers-types`
+ * in scope, and putting that package in scope replaces the DOM lib app-wide (see
+ * the note at the top of this file).
+ */
+export function getCloudflareContextOrNull(): { env?: unknown; ctx?: object } | null {
   try {
     return getCloudflareContext() ?? null;
   } catch {
