@@ -198,7 +198,7 @@ In the Instagram product open Set up Instagram business login, then Business log
 https://openreply-web.your-subdomain.workers.dev/api/connect/instagram/callback
 ```
 
-No trailing slash. The older `/api/instagram/callback` still works and is worth keeping listed alongside it until you have confirmed the new one, because this is a setting a human edits and a wrong one fails after the creator has already granted consent. If this is missing or wrong, connecting an account fails with a redirect_uri mismatch. You can register more than one, which is useful if you change domains later. Keep the old and new both listed.
+No trailing slash. This is the only callback the app uses; the older `/api/instagram/callback` has been removed, because it was a second connect path that skipped capability negotiation, so accounts that came through it had an empty granted-capability set. Remove it from the app dashboard once you have confirmed the URL above works. If this is missing or wrong, connecting an account fails with a redirect_uri mismatch after the creator has already granted consent. You can register more than one, which is useful if you change domains later.
 
 You do not need the "Embed URL" that Meta shows here. OpenReply builds its own login URL, and users connect by opening Settings and clicking Connect Instagram.
 

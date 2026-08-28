@@ -117,11 +117,19 @@ unit(1, "read capabilities on the adapter", () => {
     );
   });
 
-  check("AccountReport carries tiles, columns, rows, audience and notices", () => {
+  check("AccountReport carries tiles, columns, rows and notices", () => {
     const src = types();
-    return ["tiles", "columns", "rows", "audience", "notices"].every((field) =>
+    return ["tiles", "columns", "rows", "notices"].every((field) =>
       new RegExp(`readonly ${field}:`).test(src)
     );
+  });
+
+  // Split out of AccountReport deliberately: the cross-platform total asks
+  // every account, and building a full report per account to reach one number
+  // would cost hundreds of requests for a single line of UI.
+  check("audience is its own cheap call", () => {
+    const src = types();
+    return /fetchAudience\(/.test(src) && /export interface Audience \{/.test(src);
   });
 
   for (const platform of PLATFORMS) {
@@ -155,11 +163,12 @@ unit(2, "account scope lives in the route", () => {
     "lib/instagram-accounts.ts still exists; getWorkspaceInstagramAccount was its whole purpose"
   );
 
-  // The HTTP surface only. `lib/queue` and `lib/ops` carry `instagramAccountId`
-  // as a queue-message field, which is the engine Worker's wire format and a
-  // separate migration — renaming it here would break in-flight messages.
+  // The quoted form only, which is how a query param or a body field is read.
+  // The bare identifier survives in `app/api/webhook/*` as a queue-message
+  // field: that is the engine Worker's wire format, and renaming it here would
+  // strand messages already in flight.
   check("no caller reads the legacy instagramAccountId param", () =>
-    noneMatch(/instagramAccountId/, ["app", "components"])
+    noneMatch(/"instagramAccountId"|instagramAccountId=/, ["app", "components"])
   );
 
   check("nothing under app/ imports the Meta client directly", () =>

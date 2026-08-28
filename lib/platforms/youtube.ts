@@ -193,25 +193,6 @@ const insights: InsightsCapability = {
 
     const rows = posts.map((post) => ({ post, values: byId.get(post.id) ?? {} }));
 
-    let subscribers: number | null = null;
-    try {
-      const channels = new URL(`${API}/channels`);
-      channels.searchParams.set("part", "statistics");
-      channels.searchParams.set("id", channelId);
-      const channelData = await call<{
-        items?: Array<{ statistics?: { subscriberCount?: string; hiddenSubscriberCount?: boolean } }>;
-      }>(channels, accessToken);
-      const channelStats = channelData.items?.[0]?.statistics;
-      // A channel may hide its subscriber count, which is an absence rather
-      // than a zero and must not be charted as one.
-      subscribers =
-        channelStats?.hiddenSubscriberCount || channelStats?.subscriberCount === undefined
-          ? null
-          : Number(channelStats.subscriberCount);
-    } catch {
-      // The report stands without it.
-    }
-
     const metrics = PLATFORM_METRICS.YOUTUBE;
     return {
       tiles: metrics.map((metric, index) => ({
@@ -226,12 +207,28 @@ const insights: InsightsCapability = {
       })),
       columns: metrics.map((metric) => ({ metric, label: YT_LABELS[metric] })),
       rows,
-      audience:
-        subscribers === null
-          ? null
-          : { noun: "subscribers", current: subscribers, history: [] },
       notices: [],
     };
+  },
+
+  async fetchAudience(accessToken, channelId) {
+    const channels = new URL(`${API}/channels`);
+    channels.searchParams.set("part", "statistics");
+    channels.searchParams.set("id", channelId);
+    const data = await call<{
+      items?: Array<{
+        statistics?: { subscriberCount?: string; hiddenSubscriberCount?: boolean };
+      }>;
+    }>(channels, accessToken);
+
+    const stats = data.items?.[0]?.statistics;
+    // A channel may hide its subscriber count. That is an absence, not a zero,
+    // and charting it as one would invent a cliff that never happened.
+    const current =
+      stats?.hiddenSubscriberCount || stats?.subscriberCount === undefined
+        ? null
+        : Number(stats.subscriberCount);
+    return { noun: "subscribers", current, history: [] };
   },
 };
 

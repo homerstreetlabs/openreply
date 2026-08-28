@@ -444,20 +444,6 @@ const insights: InsightsCapability = {
       });
     }
 
-    let followers: number | null = null;
-    try {
-      const fanUrl = new URL(`${graphBase()}/${pageId}`);
-      fanUrl.searchParams.set("fields", "followers_count");
-      fanUrl.searchParams.set("access_token", accessToken);
-      const fanData = await handle<{ followers_count?: number }>(
-        await fetch(fanUrl.toString())
-      );
-      followers = fanData.followers_count ?? null;
-    } catch {
-      // A Page that will not report its follower count still has a valid
-      // report; the audience block is what goes missing, not the whole thing.
-    }
-
     return {
       tiles: granted.map((metric) => ({
         metric,
@@ -471,12 +457,16 @@ const insights: InsightsCapability = {
       })),
       columns: granted.map((metric) => ({ metric, label: FB_LABELS[metric] })),
       rows,
-      audience:
-        followers === null
-          ? null
-          : { noun: "followers", current: followers, history: [] },
       notices,
     };
+  },
+
+  async fetchAudience(accessToken, pageId) {
+    const url = new URL(`${graphBase()}/${pageId}`);
+    url.searchParams.set("fields", "followers_count");
+    url.searchParams.set("access_token", accessToken);
+    const data = await handle<{ followers_count?: number }>(await fetch(url.toString()));
+    return { noun: "followers", current: data.followers_count ?? null, history: [] };
   },
 };
 

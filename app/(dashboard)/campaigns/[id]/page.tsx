@@ -38,7 +38,7 @@ interface Campaign {
   publicReplyMessage: string | null;
   publicReplyMessages: string[];
   isActive: boolean;
-  instagramAccountId: string;
+  accountId: string;
   instagramAccount: { username: string };
   trackedLinks?: {
     destinationUrl: string;
@@ -84,8 +84,8 @@ export default function CampaignDetailPage() {
 
   useEffect(() => {
     if (!campaign) return;
-    const acct = campaign.instagramAccountId;
-    fetch(`/api/instagram/profile?instagramAccountId=${acct}`)
+    const acct = campaign.accountId;
+    fetch(`/api/instagram/profile?accountId=${acct}`)
       .then((r) => r.json())
       .then((d) =>
         setAvatarUrl(d.success ? d.data.profilePictureUrl ?? null : null)

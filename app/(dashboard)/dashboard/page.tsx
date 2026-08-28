@@ -49,7 +49,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const params = new URLSearchParams();
     if (selectedAccountId !== "all") {
-      params.set("instagramAccountId", selectedAccountId);
+      params.set("accountId", selectedAccountId);
     }
 
     fetch(`/api/dashboard/stats${params.size ? `?${params}` : ""}`)

@@ -22,7 +22,7 @@ const createAutomationSchema = z
   .object({
     name: z.string().min(1).max(100),
     goal: z.string().min(1).max(120).optional().nullable(),
-    instagramAccountId: z.string().min(1).optional().nullable(),
+    accountId: z.string().min(1).optional().nullable(),
     postId: z.string().min(1).optional().nullable(),
     postUrl: z.string().url().optional().nullable(),
     pendingNextReel: z.boolean().optional().default(false),
@@ -144,11 +144,11 @@ export async function GET(request: NextRequest) {
     );
   }
   const workspaceId = acting.workspaceId;
-  const instagramAccountId =
-    request.nextUrl.searchParams.get("instagramAccountId");
+  const accountId =
+    request.nextUrl.searchParams.get("accountId");
   const accountFilter: { connectedAccountId?: string } =
-    instagramAccountId && instagramAccountId !== "all"
-      ? { connectedAccountId: instagramAccountId }
+    accountId && accountId !== "all"
+      ? { connectedAccountId: accountId }
       : {};
 
   const automations = await prisma.campaign.findMany({
@@ -346,8 +346,8 @@ export async function POST(request: NextRequest) {
   }
 
   const requestedInstagramAccountId =
-    parsed.data.instagramAccountId && parsed.data.instagramAccountId !== "all"
-      ? parsed.data.instagramAccountId
+    parsed.data.accountId && parsed.data.accountId !== "all"
+      ? parsed.data.accountId
       : null;
 
   const [workspace, instagramAccount] = await Promise.all([

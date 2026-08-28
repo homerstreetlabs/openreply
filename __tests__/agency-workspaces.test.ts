@@ -14,10 +14,7 @@ vi.mock("@/lib/db/client", () => ({
   prisma: mockPrisma,
 }));
 
-import {
-  canConnectInstagramAccount,
-  getWorkspaceInstagramAccount,
-} from "../lib/instagram-accounts";
+import { canConnectAccount } from "../lib/accounts/directory";
 import {
   buildInvitationUrl,
   normalizeInvitationEmail,
@@ -34,9 +31,9 @@ describe("agency workspace helpers", () => {
     });
 
     await expect(
-      canConnectInstagramAccount({
+      canConnectAccount({
         workspaceId: "workspace_123",
-        instagramId: "ig_123",
+        externalId: "ig_123",
       })
     ).resolves.toMatchObject({ allowed: true, reason: null });
   });
@@ -47,9 +44,9 @@ describe("agency workspace helpers", () => {
     });
 
     await expect(
-      canConnectInstagramAccount({
+      canConnectAccount({
         workspaceId: "workspace_123",
-        instagramId: "ig_123",
+        externalId: "ig_123",
       })
     ).resolves.toMatchObject({
       allowed: false,
@@ -61,26 +58,11 @@ describe("agency workspace helpers", () => {
     mockPrisma.connectedAccount.findUnique.mockResolvedValue(null);
 
     await expect(
-      canConnectInstagramAccount({
+      canConnectAccount({
         workspaceId: "workspace_123",
-        instagramId: "ig_123",
+        externalId: "ig_123",
       })
     ).resolves.toMatchObject({ allowed: true, reason: null });
-  });
-
-  it("selects a requested workspace account or falls back to the latest account", async () => {
-    mockPrisma.connectedAccount.findFirst.mockResolvedValue({ id: "account_1" });
-
-    await getWorkspaceInstagramAccount("workspace_123", "account_1");
-    expect(mockPrisma.connectedAccount.findFirst).toHaveBeenCalledWith({
-      where: { id: "account_1", workspaceId: "workspace_123" },
-    });
-
-    await getWorkspaceInstagramAccount("workspace_123", "all");
-    expect(mockPrisma.connectedAccount.findFirst).toHaveBeenLastCalledWith({
-      where: { workspaceId: "workspace_123" },
-      orderBy: { connectedAt: "desc" },
-    });
   });
 
   it("normalizes invitation emails and builds invite URLs", () => {

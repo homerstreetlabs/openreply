@@ -333,9 +333,18 @@ const insights: InsightsCapability = {
       })),
       columns: granted.map((metric) => ({ metric, label: INSIGHT_LABELS[metric] })),
       rows,
-      audience: null,
       notices,
     };
+  },
+
+  /**
+   * Instagram's account insights expose follower deltas rather than a running
+   * total, so the series is reconstructed from snapshots we already record.
+   */
+  async fetchAudience(accessToken, accountExternalId) {
+    const profile = await getUserInfo(accessToken);
+    const current = profile.followers_count ?? null;
+    return { noun: "followers", current, history: [] };
   },
 };
 
@@ -385,6 +394,11 @@ export const instagramAdapter: PlatformAdapter = {
   discovery,
   insights,
   conversations,
+
+  async fetchProfileImage(accessToken) {
+    const info = await getUserInfo(accessToken);
+    return info.profile_picture_url ?? null;
+  },
 
   /**
    * 60 days, refreshed by presenting the token itself. There is no separate

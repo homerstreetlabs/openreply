@@ -517,17 +517,22 @@ export interface AccountReport {
     readonly post: PostSummary;
     readonly values: MetricValues;
   }[];
-  /**
-   * Followers, fans, or subscribers: one concept with four names, which is why
-   * the noun travels with the number. Null where the platform reports no
-   * audience size at all.
-   */
-  readonly audience: {
-    readonly noun: string;
-    readonly current: number | null;
-    readonly history: readonly AudiencePoint[];
-  } | null;
   readonly notices: readonly ReportNotice[];
+}
+
+/**
+ * How many people follow an account.
+ *
+ * Followers, fans, or subscribers: one concept with four names, which is why
+ * the noun travels with the number. Deliberately not part of `AccountReport`.
+ * The combined figure across every connected account has to ask each one, and
+ * building a full post-by-post report per account to reach a single number
+ * would cost hundreds of requests for one line of UI.
+ */
+export interface Audience {
+  readonly noun: string;
+  readonly current: number | null;
+  readonly history: readonly AudiencePoint[];
 }
 
 /**
@@ -553,6 +558,16 @@ export interface InsightsCapability {
     accountExternalId: string,
     options: { readonly limit: number }
   ): Promise<AccountReport>;
+
+  /**
+   * One cheap call, so the cross-platform total can ask every account without
+   * building every report. Null where the platform reports no audience size, or
+   * where the account has hidden it — which is an absence, never a zero.
+   */
+  fetchAudience(
+    accessToken: string,
+    accountExternalId: string
+  ): Promise<Audience | null>;
 }
 
 /** One conversation, as the dashboard inbox lists it. */
@@ -635,6 +650,15 @@ export interface PlatformAdapter {
 
   /** Null where the platform reports no post-level analytics. */
   readonly insights: InsightsCapability | null;
+
+  /**
+   * The account's own avatar, for the campaign preview that shows a creator
+   * what their DM will look like arriving.
+   *
+   * Optional rather than nullable: a platform that does not expose one has
+   * nothing to implement, and the preview simply falls back to initials.
+   */
+  fetchProfileImage?(accessToken: string, accountExternalId: string): Promise<string | null>;
 
   /** Null where conversation history cannot be read. */
   readonly conversations: ConversationsCapability | null;

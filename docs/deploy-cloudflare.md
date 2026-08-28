@@ -278,7 +278,7 @@ If this is a fresh install, follow the platform section of
 
 If you are moving an existing instance, three URLs change per Meta platform:
 
-1. Add `https://openreply-web.your-subdomain.workers.dev/api/instagram/callback` to the
+1. Add `https://openreply-web.your-subdomain.workers.dev/api/connect/instagram/callback` to the
    OAuth redirect URIs in the Instagram product's Business login settings, and
    `/api/facebook/callback` in Facebook Login for Business settings. Keep the old URIs
    listed until the cutover is done.

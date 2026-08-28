@@ -34,7 +34,7 @@ interface Campaign {
   followPromptButtonLabel: string | null;
   isActive: boolean;
   wholeWordMatch: boolean;
-  instagramAccountId: string;
+  accountId: string;
   instagramAccount: {
     username: string;
     instagramId: string;
@@ -93,7 +93,7 @@ export default function CampaignsPage() {
     try {
       const params = new URLSearchParams();
       if (selectedAccountId !== "all") {
-        params.set("instagramAccountId", selectedAccountId);
+        params.set("accountId", selectedAccountId);
       }
       if (actingFor) params.set("workspaceId", actingFor);
       const res = await fetch(
@@ -132,7 +132,7 @@ export default function CampaignsPage() {
     if (automations.length === 0) return;
     let cancelled = false;
     const accountIds = Array.from(
-      new Set(automations.map((a) => a.instagramAccountId))
+      new Set(automations.map((a) => a.accountId))
     ).sort();
     const cacheKey = `ig-media:${accountIds.join(",")}`;
 
@@ -249,7 +249,7 @@ export default function CampaignsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: `${auto.name} copy`,
-          instagramAccountId: auto.instagramAccountId,
+          accountId: auto.accountId,
           postId: specific ? auto.postId : null,
           postUrl: specific ? auto.postUrl : null,
           matchAnyPost: auto.matchAnyPost,

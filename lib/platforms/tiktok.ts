@@ -254,21 +254,6 @@ const insights: InsightsCapability = {
       ];
     });
 
-    let followers: number | null = null;
-    try {
-      const accountParams = new URLSearchParams({
-        business_id: businessId,
-        fields: JSON.stringify(["followers_count"]),
-      });
-      const account = await call<{ followers_count?: number }>(
-        `/business/get/?${accountParams.toString()}`,
-        accessToken
-      );
-      followers = account?.followers_count ?? null;
-    } catch {
-      // The report stands without it.
-    }
-
     const metrics = PLATFORM_METRICS.TIKTOK;
     return {
       tiles: metrics.map((metric, index) => ({
@@ -283,12 +268,20 @@ const insights: InsightsCapability = {
       })),
       columns: metrics.map((metric) => ({ metric, label: TT_LABELS[metric] })),
       rows,
-      audience:
-        followers === null
-          ? null
-          : { noun: "followers", current: followers, history: [] },
       notices: [],
     };
+  },
+
+  async fetchAudience(accessToken, businessId) {
+    const params = new URLSearchParams({
+      business_id: businessId,
+      fields: JSON.stringify(["followers_count"]),
+    });
+    const account = await call<{ followers_count?: number }>(
+      `/business/get/?${params.toString()}`,
+      accessToken
+    );
+    return { noun: "followers", current: account?.followers_count ?? null, history: [] };
   },
 };
 

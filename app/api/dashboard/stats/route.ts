@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   weekStart.setDate(weekStart.getDate() - 7);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const requestedInstagramAccountId =
-    request.nextUrl.searchParams.get("instagramAccountId");
+    request.nextUrl.searchParams.get("accountId");
   const selectedAccountId =
     requestedInstagramAccountId && requestedInstagramAccountId !== "all"
       ? requestedInstagramAccountId

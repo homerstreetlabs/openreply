@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     Math.max(1, Number.parseInt(searchParams.get("limit") ?? "20", 10))
   );
   const status = searchParams.get("status");
-  const instagramAccountId = searchParams.get("instagramAccountId");
+  const accountId = searchParams.get("accountId");
   const skip = (page - 1) * limit;
   const parsedStatus =
     status && Object.values(DmStatus).includes(status as DmStatus)
@@ -32,8 +32,8 @@ export async function GET(request: NextRequest) {
   // Prisma saw it. Assignment onto a typed object is checked.
   const where: Prisma.ResponseRunWhereInput = { workspaceId };
   if (parsedStatus) where.status = parsedStatus;
-  if (instagramAccountId && instagramAccountId !== "all") {
-    where.connectedAccountId = instagramAccountId;
+  if (accountId && accountId !== "all") {
+    where.connectedAccountId = accountId;
   }
 
   const [logs, total] = await Promise.all([

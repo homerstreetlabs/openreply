@@ -53,7 +53,7 @@ export default function LogsPage() {
       const params = new URLSearchParams({ page: String(page), limit: "20" });
       if (statusFilter !== "ALL") params.set("status", statusFilter);
       if (selectedAccountId !== "all") {
-        params.set("instagramAccountId", selectedAccountId);
+        params.set("accountId", selectedAccountId);
       }
 
       const res = await fetch(`/api/logs?${params}`);

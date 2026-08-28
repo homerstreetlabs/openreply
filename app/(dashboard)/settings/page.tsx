@@ -116,10 +116,10 @@ export default function SettingsPage() {
     }
 
     setBusy(`disconnect:${account.id}`);
-    await fetch("/api/instagram/disconnect", {
+    await fetch("/api/accounts/disconnect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instagramAccountId: account.id }),
+      body: JSON.stringify({ accountId: account.id }),
     });
     window.location.reload();
   }
