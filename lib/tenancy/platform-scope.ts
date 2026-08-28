@@ -11,7 +11,7 @@
  */
 
 import { prisma } from "@/lib/db/client";
-import { getCurrentUserId } from "@/lib/auth";
+import { getCurrentUserId } from "@/lib/session";
 import type { PlatformGrantTier } from "@/app/generated/prisma/client";
 
 export type { PlatformGrantTier };
@@ -34,9 +34,15 @@ export interface PlatformScope {
  * The highest currently-active grant, or null. An expired grant is
  * indistinguishable from never having had one, which is the point of setting an
  * expiry on support access.
+ *
+ * A caller that has already resolved the session passes it in, so it does not
+ * pay for a second lookup. React memoization would cover that during a render
+ * pass but not in a Route Handler, where it is a passthrough.
  */
-export async function getPlatformScope(): Promise<PlatformScope | null> {
-  const userId = await getCurrentUserId();
+export async function getPlatformScope(
+  knownUserId?: string
+): Promise<PlatformScope | null> {
+  const userId = knownUserId ?? (await getCurrentUserId());
   if (!userId) return null;
 
   const now = new Date();
@@ -60,9 +66,10 @@ export async function getPlatformScope(): Promise<PlatformScope | null> {
 }
 
 export async function requirePlatformScope(
-  minimum: PlatformGrantTier = "SUPPORT_READ"
+  minimum: PlatformGrantTier = "SUPPORT_READ",
+  knownUserId?: string
 ): Promise<PlatformScope> {
-  const scope = await getPlatformScope();
+  const scope = await getPlatformScope(knownUserId);
   if (!scope || RANK[scope.tier] < RANK[minimum]) {
     throw new PlatformAccessError();
   }
@@ -89,9 +96,10 @@ export class PlatformAccessError extends Error {
  */
 export async function assumeWorkspace(
   workspaceId: string,
-  action: string
+  action: string,
+  knownUserId?: string
 ): Promise<PlatformScope> {
-  const scope = await requirePlatformScope("ADMIN");
+  const scope = await requirePlatformScope("ADMIN", knownUserId);
   await recordAdminAccess({ scope, action, workspaceId });
   return scope;
 }

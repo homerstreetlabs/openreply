@@ -6,21 +6,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * and one row per action says who did.
  */
 
-const { mockPrisma, mockGetCurrentWorkspaceId, mockGetCurrentUserId } = vi.hoisted(
+const { mockPrisma, mockGetSessionScope, mockGetCurrentUserId } = vi.hoisted(
   () => ({
     mockPrisma: {
       workspaceMember: { findUnique: vi.fn() },
       platformGrant: { findMany: vi.fn() },
       adminAccessLog: { create: vi.fn() },
     },
-    mockGetCurrentWorkspaceId: vi.fn(),
+    mockGetSessionScope: vi.fn(),
     mockGetCurrentUserId: vi.fn(),
   })
 );
 
 vi.mock("@/lib/db/client", () => ({ prisma: mockPrisma }));
-vi.mock("@/lib/auth", () => ({
-  getCurrentWorkspaceId: mockGetCurrentWorkspaceId,
+vi.mock("@/lib/session", () => ({
+  getSessionScope: mockGetSessionScope,
   getCurrentUserId: mockGetCurrentUserId,
 }));
 
@@ -28,7 +28,7 @@ import { actingWorkspace, PlatformAccessError } from "../lib/tenancy/acting-work
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGetCurrentWorkspaceId.mockResolvedValue("ws_own");
+  mockGetSessionScope.mockResolvedValue({ userId: "user_1", workspaceId: "ws_own" });
   mockGetCurrentUserId.mockResolvedValue("user_1");
   mockPrisma.workspaceMember.findUnique.mockResolvedValue(null);
   mockPrisma.platformGrant.findMany.mockResolvedValue([]);
@@ -57,6 +57,20 @@ describe("acting in your own workspace", () => {
 
     expect(acting).toEqual({ kind: "own", workspaceId: "ws_other" });
     expect(mockPrisma.adminAccessLog.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolving the session", () => {
+  it("looks the session up once, not once per field", async () => {
+    await actingWorkspace("ws_other", "read campaigns").catch(() => {});
+
+    expect(mockGetSessionScope).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns null when there is no session and none was requested", async () => {
+    mockGetSessionScope.mockResolvedValue(null);
+
+    expect(await actingWorkspace(null, "read campaigns")).toBeNull();
   });
 });
 

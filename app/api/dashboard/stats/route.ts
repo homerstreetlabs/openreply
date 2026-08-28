@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUserId, getCurrentWorkspaceId } from "@/lib/auth";
+import { getSessionScope } from "@/lib/session";
 import { prisma } from "@/lib/db/client";
 import {
   calculateCtr,
@@ -10,15 +10,17 @@ import {
 } from "@/lib/tracking/analytics";
 
 export async function GET(request: NextRequest) {
-  const workspaceId = await getCurrentWorkspaceId();
-  if (!workspaceId) {
+  // One lookup for both. React `cache()` does not memoize inside a Route
+  // Handler, so asking for the workspace and then the user would be two session
+  // queries rather than one.
+  const scope = await getSessionScope();
+  if (!scope) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
       { status: 401 }
     );
   }
-
-  const userId = await getCurrentUserId();
+  const { userId, workspaceId } = scope;
 
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -143,12 +145,10 @@ export async function GET(request: NextRequest) {
         connectedAccount: { select: { username: true } },
       },
     }),
-    userId
-      ? prisma.user.findUnique({
-          where: { id: userId },
-          select: { name: true, email: true },
-        })
-      : Promise.resolve(null),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    }),
     // Distinct people who have interacted, counted as "contacts".
     prisma.responseRun.findMany({
       where: { workspaceId, ...accountFilter },

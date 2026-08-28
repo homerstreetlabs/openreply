@@ -1,6 +1,6 @@
 import type { Workspace, WorkspaceRole } from "@/app/generated/prisma/client";
-import { getCurrentUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
+import { getSession } from "@/lib/session";
 import { ensureWorkspaceForUser } from "@/lib/workspace";
 
 export type WorkspaceContext = {
@@ -32,7 +32,8 @@ export function canManageBilling(role: WorkspaceRole) {
 }
 
 export async function getCurrentWorkspaceContext(): Promise<WorkspaceContext | null> {
-  const userId = await getCurrentUserId();
+  const session = await getSession();
+  const userId = session?.user?.id;
   if (!userId) return null;
 
   const membership = await prisma.workspaceMember.findFirst({
@@ -50,11 +51,7 @@ export async function getCurrentWorkspaceContext(): Promise<WorkspaceContext | n
     };
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { email: true },
-  });
-  const workspace = await ensureWorkspaceForUser(userId, user?.email);
+  const workspace = await ensureWorkspaceForUser(userId, session?.user?.email);
   const createdMembership = await prisma.workspaceMember.findUnique({
     where: {
       workspaceId_userId: {

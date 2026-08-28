@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import DashboardShell from "@/components/dashboard-shell";
-import { auth } from "@/lib/auth";
+import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db/client";
 import { ensureWorkspaceForUser } from "@/lib/workspace";
 import { getPlatformScope } from "@/lib/tenancy/platform-scope";
@@ -10,16 +10,14 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  const session = await getSession();
 
   if (!session?.user?.id) {
     redirect("/login");
   }
+  const userId = session.user.id;
 
-  const workspace = await ensureWorkspaceForUser(
-    session.user.id,
-    session.user.email
-  );
+  const workspace = await ensureWorkspaceForUser(userId, session.user.email);
   const accounts = await prisma.connectedAccount.findMany({
     where: { workspaceId: workspace.id },
     orderBy: { connectedAt: "desc" },
@@ -29,7 +27,7 @@ export default async function DashboardLayout({
   // Admin surfaces are hidden rather than shown and refused. A creator who sees
   // Fleet and clicks into a 403 learns nothing except that the product has a
   // room they are not allowed in.
-  const scope = await getPlatformScope();
+  const scope = await getPlatformScope(userId);
 
   return (
     <DashboardShell
