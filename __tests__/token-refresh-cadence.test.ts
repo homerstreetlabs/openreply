@@ -59,4 +59,13 @@ describe("cronIntervalMs", () => {
   it("treats a fixed daily time as daily", () => {
     expect(cronIntervalMs("0 5 * * *")).toBe(86_400_000);
   });
+
+  /**
+   * The invariant this feeds is only as good as this reader. A shape it cannot
+   * parse has to stop the build rather than yield a plausible default.
+   */
+  it("refuses a shape it cannot read", () => {
+    expect(() => cronIntervalMs("0 */2 * * *")).toThrow();
+    expect(() => cronIntervalMs("not a cron")).toThrow();
+  });
 });

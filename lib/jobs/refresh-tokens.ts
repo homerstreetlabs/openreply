@@ -17,14 +17,23 @@ import { classifyFailure, raiseIncident, resolveIncident } from "@/lib/ops/incid
 export const TOKEN_REFRESH_CRON = "*/5 * * * *";
 
 /**
- * How often a cron expression fires, for the shapes this Worker uses: a
- * step across the minute field, or a fixed daily time.
+ * How often a cron expression fires, for the two shapes this Worker uses: a
+ * step across the minute field, or a fixed time each day.
+ *
+ * Throws on anything else rather than guessing. This number is one side of the
+ * refresh-cadence invariant, so a shape it cannot read has to stop the build
+ * instead of yielding a plausible default that the check would compare against.
  */
 export function cronIntervalMs(expression: string): number {
-  const [minute, hour] = expression.split(" ");
+  const [minute, hour, ...rest] = expression.split(" ");
+
   const step = /^\*\/(\d+)$/.exec(minute);
   if (step && hour === "*") return Number(step[1]) * 60_000;
-  return 24 * 3_600_000;
+
+  const daily = /^\d+$/.test(minute) && /^\d+$/.test(hour) && rest.join(" ") === "* * *";
+  if (daily) return 24 * 3_600_000;
+
+  throw new Error(`Unsupported cron expression: ${expression}`);
 }
 
 /**

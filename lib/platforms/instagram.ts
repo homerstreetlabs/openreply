@@ -419,11 +419,10 @@ export const instagramAdapter: PlatformAdapter = {
       return getAuthorizationUrl(redirectUri, state);
     },
     async exchange(_app, code, redirectUri) {
-      // The authorization-code grant returns a SHORT-lived token, good for about
-      // an hour. `ig_exchange_token` is what turns it into the 60-day one, and
-      // skipping it stored a token that died overnight while the row recorded
-      // 60 days remaining — so the refresh cron, which only looks at accounts
-      // inside 10 days of expiry, never came back for it.
+      // The authorization-code grant returns a SHORT-lived token, good for
+      // about an hour. `ig_exchange_token` is what turns it into the 60-day
+      // one. Skipping it stored a token that died overnight while the row
+      // recorded 60 days remaining, so the refresh cron never came back for it.
       const { accessToken: shortLived } = await exchangeCodeForToken(code, redirectUri);
       const longLived = await getLongLivedToken(shortLived);
 
@@ -437,8 +436,6 @@ export const instagramAdapter: PlatformAdapter = {
           displayName: profile.name ?? null,
           accessToken: longLived.accessToken,
           refreshToken: null,
-          // Meta's own number. Asserting 60 days here is what made the stored
-          // expiry a claim rather than a fact.
           expiresInSeconds: longLived.expiresIn,
           region: null,
           grantedScopes: INSTAGRAM_SCOPES,
