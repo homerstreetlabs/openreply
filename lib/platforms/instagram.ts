@@ -11,9 +11,14 @@ import {
   getUserFollowStatus,
   getUserInfo,
   getAllUserMedia,
+  getMediaInsights,
+  getConversations,
+  getConversationMessages,
+  PermissionError,
   refreshLongLivedToken,
   getRecentMediaComments,
   sendCommentReply,
+  type InstagramMedia,
   sendDirectMessage as igSendDirectMessage,
   sendDirectMessageWithButton as igSendDirectMessageWithButton,
   sendDirectMessageWithLinkButton,
@@ -34,15 +39,28 @@ import {
   verifyWebhookSignature,
 } from "@/lib/meta/webhook";
 import type {
+  ConversationsCapability,
   DiscoveredComment,
   Discovery,
+  InsightsCapability,
   MessagingCapability,
+  Metric,
+  MetricValues,
   PlatformAdapter,
   PlatformEvent,
   PostSummary,
+  ReportNotice,
   SendResult,
 } from "./types";
-import { PLATFORM_CAPABILITIES } from "./types";
+import { PLATFORM_CAPABILITIES, PLATFORM_METRICS } from "./types";
+import { mapWithConcurrency } from "./concurrency";
+
+/**
+ * How many per-media insight requests are in flight at once. Eight keeps a
+ * 500-post report inside a Worker's subrequest concurrency without serialising
+ * it into a timeout.
+ */
+const INSIGHTS_CONCURRENCY = 8;
 
 type WebhookPayload = Parameters<typeof parseCommentEvents>[0];
 
@@ -202,10 +220,171 @@ const messaging: MessagingCapability = {
   },
 };
 
+function toPostSummary(media: InstagramMedia): PostSummary {
+  return {
+    id: media.id,
+    caption: media.caption ?? null,
+    permalink: media.permalink ?? null,
+    thumbnailUrl: media.thumbnail_url ?? media.media_url ?? null,
+    videoUrl: media.media_type === "VIDEO" ? (media.media_url ?? null) : null,
+    mediaType: media.media_product_type ?? media.media_type,
+    timestamp: media.timestamp,
+    isReel: media.media_product_type === "REELS",
+  };
+}
+
+/**
+ * Views only exist on video-like media. Asking for them on a still returns an
+ * error for the whole request rather than a partial result, which would cost
+ * the reach and saves that were valid.
+ */
+function metricsFor(media: InstagramMedia): string[] {
+  const video =
+    media.media_product_type === "REELS" || media.media_type === "VIDEO";
+  return video
+    ? ["views", "reach", "saved", "shares"]
+    : ["reach", "saved", "shares"];
+}
+
+const INSIGHT_LABELS = {
+  VIEWS: "Views",
+  REACH: "Reach",
+  LIKES: "Likes",
+  COMMENTS: "Comments",
+  SAVES: "Saved",
+  SHARES: "Shares",
+} satisfies Record<Metric, string>;
+
+/** Headline first. Reach leads on Instagram; likes and comments are table stakes. */
+const INSIGHT_RANK = {
+  VIEWS: 1,
+  REACH: 2,
+  LIKES: 3,
+  COMMENTS: 4,
+  SAVES: 5,
+  SHARES: 6,
+} satisfies Record<Metric, number>;
+
+const insights: InsightsCapability = {
+  metrics: PLATFORM_METRICS.INSTAGRAM,
+
+  async buildReport(accessToken, accountExternalId, { limit }) {
+    const media = await getAllUserMedia(accessToken, limit);
+
+    // Likes and comments ride along with the media fields and are always
+    // present. Everything else needs the insights permission, so a token
+    // granted before that scope degrades to the two rather than to nothing.
+    let permissionDenied = false;
+    const perMedia = await mapWithConcurrency(media, INSIGHTS_CONCURRENCY, async (m) => {
+      try {
+        return await getMediaInsights(accessToken, m.id, metricsFor(m));
+      } catch (error) {
+        if (error instanceof PermissionError) permissionDenied = true;
+        return null;
+      }
+    });
+
+    const granted: Metric[] = permissionDenied
+      ? ["LIKES", "COMMENTS"]
+      : [...PLATFORM_METRICS.INSTAGRAM];
+
+    const rows = media.map((m, i) => {
+      const ins = perMedia[i];
+      const values: MetricValues = {
+        LIKES: m.like_count ?? 0,
+        COMMENTS: m.comments_count ?? 0,
+      };
+      if (ins) {
+        if (ins.views !== undefined) values.VIEWS = ins.views;
+        if (ins.reach !== undefined) values.REACH = ins.reach;
+        if (ins.saved !== undefined) values.SAVES = ins.saved;
+        if (ins.shares !== undefined) values.SHARES = ins.shares;
+      }
+      return {
+        post: toPostSummary(m),
+        values,
+      };
+    });
+
+    const notices: ReportNotice[] = [];
+    if (permissionDenied) {
+      notices.push({
+        kind: "permission",
+        message:
+          "Views, reach, saved and shares need the insights permission. Reconnect this account to grant it.",
+      });
+    }
+    if (media.length >= limit) {
+      notices.push({
+        kind: "truncated",
+        message: `Showing the most recent ${limit} posts.`,
+      });
+    }
+
+    return {
+      tiles: granted.map((metric) => ({
+        metric,
+        label: INSIGHT_LABELS[metric],
+        value: rows.reduce<number | null>(
+          (sum, row) => (row.values[metric] === undefined ? sum : (sum ?? 0) + row.values[metric]),
+          null
+        ),
+        rank: INSIGHT_RANK[metric],
+      })),
+      columns: granted.map((metric) => ({ metric, label: INSIGHT_LABELS[metric] })),
+      rows,
+      audience: null,
+      notices,
+    };
+  },
+};
+
+const conversations: ConversationsCapability = {
+  async listThreads(accessToken, accountExternalId, limit) {
+    const raw = await getConversations(accessToken, accountExternalId, limit);
+    return raw.map((c) => {
+      const participants = c.participants?.data ?? [];
+      const contact =
+        participants.find((p) => p.id !== accountExternalId) ?? participants[0] ?? null;
+      const last = c.messages?.data?.[0] ?? null;
+      return {
+        id: c.id,
+        contact: { id: contact?.id ?? "", username: contact?.username ?? null },
+        updatedAt: c.updated_time ?? null,
+        lastMessage: last
+          ? {
+              text: last.message ?? "",
+              fromMe: last.from?.id === accountExternalId,
+              at: last.created_time ?? null,
+            }
+          : null,
+      };
+    });
+  },
+
+  async readThread(accessToken, accountExternalId, threadId) {
+    const raw = await getConversationMessages(accessToken, threadId);
+    return raw.map((m) => ({
+      id: m.id,
+      text: m.message ?? "",
+      fromMe: m.from?.id === accountExternalId,
+      fromUsername: m.from?.username ?? null,
+      at: m.created_time ?? null,
+    }));
+  },
+
+  async reply(accessToken, accountExternalId, recipientId, text) {
+    const result = await igSendDirectMessage(accessToken, accountExternalId, recipientId, text);
+    return { messageId: result.message_id };
+  },
+};
+
 export const instagramAdapter: PlatformAdapter = {
   platform: "INSTAGRAM",
   capabilities: PLATFORM_CAPABILITIES.INSTAGRAM,
   discovery,
+  insights,
+  conversations,
 
   /**
    * 60 days, refreshed by presenting the token itself. There is no separate
@@ -275,15 +454,6 @@ export const instagramAdapter: PlatformAdapter = {
 
   async listPosts(accessToken, _accountId, limit): Promise<PostSummary[]> {
     const media = await getAllUserMedia(accessToken, limit);
-    return media.map((m) => ({
-      id: m.id,
-      caption: m.caption ?? null,
-      permalink: m.permalink ?? null,
-      thumbnailUrl: m.thumbnail_url ?? m.media_url ?? null,
-      videoUrl: m.media_type === "VIDEO" ? (m.media_url ?? null) : null,
-      mediaType: m.media_type,
-      timestamp: m.timestamp,
-      isReel: m.media_product_type === "REELS",
-    }));
+    return media.map(toPostSummary);
   },
 };

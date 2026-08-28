@@ -131,15 +131,6 @@ unit(1, "read capabilities on the adapter", () => {
     });
   }
 
-  check("nothing under app/ imports the Meta client directly", () =>
-    noneMatch(/from "@\/lib\/meta\/client"/, ["app"])
-  );
-
-  // Code, not prose. `app/api/posts/route.ts` names the host in a doc comment
-  // describing the bug it fixed, and that comment should outlive this gate.
-  check("no route hardcodes the Instagram Graph host", () =>
-    noneMatch(/["'`]https?:\/\/graph\.instagram\.com/, ["app"])
-  );
 });
 
 // ─── Unit 2 ──────────────────────────────────────────────────────────────────
@@ -169,6 +160,16 @@ unit(2, "account scope lives in the route", () => {
   // separate migration — renaming it here would break in-flight messages.
   check("no caller reads the legacy instagramAccountId param", () =>
     noneMatch(/instagramAccountId/, ["app", "components"])
+  );
+
+  check("nothing under app/ imports the Meta client directly", () =>
+    noneMatch(/from "@\/lib\/meta\/client"/, ["app"])
+  );
+
+  // Code, not prose. `app/api/posts/route.ts` names the host in a doc comment
+  // describing the bug it fixed, and that comment should outlive this gate.
+  check("no route hardcodes the Instagram Graph host", () =>
+    noneMatch(/["'`]https?:\/\/graph\.instagram\.com/, ["app"])
   );
 
   check("Overview no longer fetches from a client effect", () => {

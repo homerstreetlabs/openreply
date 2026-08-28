@@ -26,11 +26,14 @@ import type {
   DiscoveredComment,
   CommentEvent,
   Discovery,
+  InsightsCapability,
+  Metric,
+  MetricValues,
   PlatformAdapter,
   PlatformEvent,
   PostSummary,
 } from "./types";
-import { PLATFORM_CAPABILITIES } from "./types";
+import { PLATFORM_CAPABILITIES, PLATFORM_METRICS } from "./types";
 
 const API = "https://business-api.tiktok.com/open_api/v1.3";
 
@@ -176,7 +179,129 @@ const discovery: Discovery = {
   },
 };
 
+const TT_LABELS = {
+  VIEWS: "Video views",
+  LIKES: "Likes",
+  COMMENTS: "Comments",
+  SHARES: "Shares",
+  REACH: "Reach",
+  SAVES: "Saved",
+} satisfies Record<Metric, string>;
+
+/**
+ * `/business/video/list/` returns metrics alongside the videos when asked, so
+ * the whole report is one call. There is no per-video insights edge to fan out
+ * across, which is why this adapter needs no concurrency bound.
+ */
+const insights: InsightsCapability = {
+  metrics: PLATFORM_METRICS.TIKTOK,
+
+  async buildReport(accessToken, businessId, { limit }) {
+    const params = new URLSearchParams({
+      business_id: businessId,
+      max_count: String(Math.min(limit, 20)),
+      fields: JSON.stringify([
+        "item_id",
+        "caption",
+        "share_url",
+        "thumbnail_url",
+        "create_time",
+        "video_views",
+        "likes",
+        "comments",
+        "shares",
+      ]),
+    });
+
+    const data = await call<{
+      videos?: Array<{
+        item_id?: string;
+        caption?: string;
+        share_url?: string;
+        thumbnail_url?: string;
+        create_time?: number;
+        video_views?: number;
+        likes?: number;
+        comments?: number;
+        shares?: number;
+      }>;
+    }>(`/business/video/list/?${params.toString()}`, accessToken);
+
+    const rows = (data?.videos ?? []).flatMap((video) => {
+      if (!video.item_id) return [];
+      const values: MetricValues = {};
+      if (video.video_views !== undefined) values.VIEWS = video.video_views;
+      if (video.likes !== undefined) values.LIKES = video.likes;
+      if (video.comments !== undefined) values.COMMENTS = video.comments;
+      if (video.shares !== undefined) values.SHARES = video.shares;
+
+      return [
+        {
+          post: {
+            id: video.item_id,
+            caption: video.caption ?? null,
+            permalink: video.share_url ?? null,
+            thumbnailUrl: video.thumbnail_url ?? null,
+            videoUrl: null,
+            mediaType: "VIDEO",
+            timestamp: video.create_time
+              ? new Date(video.create_time * 1000).toISOString()
+              : new Date(0).toISOString(),
+            isReel: true,
+          },
+          values,
+        },
+      ];
+    });
+
+    let followers: number | null = null;
+    try {
+      const accountParams = new URLSearchParams({
+        business_id: businessId,
+        fields: JSON.stringify(["followers_count"]),
+      });
+      const account = await call<{ followers_count?: number }>(
+        `/business/get/?${accountParams.toString()}`,
+        accessToken
+      );
+      followers = account?.followers_count ?? null;
+    } catch {
+      // The report stands without it.
+    }
+
+    const metrics = PLATFORM_METRICS.TIKTOK;
+    return {
+      tiles: metrics.map((metric, index) => ({
+        metric,
+        label: TT_LABELS[metric],
+        value: rows.reduce<number | null>(
+          (sum, row) =>
+            row.values[metric] === undefined ? sum : (sum ?? 0) + row.values[metric],
+          null
+        ),
+        rank: index + 1,
+      })),
+      columns: metrics.map((metric) => ({ metric, label: TT_LABELS[metric] })),
+      rows,
+      audience:
+        followers === null
+          ? null
+          : { noun: "followers", current: followers, history: [] },
+      notices: [],
+    };
+  },
+};
+
 export const tiktokAdapter: PlatformAdapter = {
+  insights,
+  /**
+   * The conversation list exists, but it returns a conversation id without the
+   * identifier that attributes it to a commenter, and initiating a conversation
+   * is prohibited outside three countries. An inbox that can neither attribute
+   * nor answer a thread is not one, so this stays null until the messaging
+   * carve-out is something we actually hold.
+   */
+  conversations: null,
   platform: "TIKTOK",
   capabilities: PLATFORM_CAPABILITIES.TIKTOK,
   discovery,
