@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      migrations_already_applied:
+        description: >-
+          Skip the migration guard. Tick this only after running `pnpm db:migrate`
+          against production from a machine the database allows.
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -57,3 +65,223 @@ jobs:
           FACEBOOK_APP_ID: test
           FACEBOOK_APP_SECRET: test
           WEBHOOK_VERIFY_TOKEN: test
+
+  deploy:
+    name: Deploy to Cloudflare
+    needs: test
+    if: >-
+      github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      # The migration guard reads this environment's deployment history to find
+      # out what is actually live.
+      deployments: read
+
+    # One deploy at a time, and never cancel one that is running. This job
+    # uploads two Workers in sequence, so a cancellation between them leaves the
+    # engine on the new version and the web Worker on the old one. A queued
+    # deploy is the cheaper failure.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The migration guard diffs against a commit that may be many pushes
+          # back, whatever last reached production. The default shallow clone
+          # has only the tip.
+          fetch-depth: 0
+
+      # This job deliberately never runs `prisma migrate deploy`. The database
+      # accepts connections only from whitelisted public IPs or from inside its
+      # VNet, and GitHub-hosted runners are neither, so a migrate step would
+      # stall until the job timed out. Migrations are applied by hand from a
+      # whitelisted machine, and that is not going to change here: a tunnel, a
+      # proxy or a self-hosted runner would each put the production database
+      # behind CI.
+      #
+      # The gap that leaves is a merge that adds a migration, which would ship
+      # code expecting columns the database does not have. So refuse that push
+      # and make the operator say the migration is applied.
+      #
+      # What it compares against is the last commit that actually reached
+      # production, never merely what this push touched. A push range answers
+      # the wrong question: block a migration, merge something unrelated, and
+      # that second push adds no migration of its own, passes, and deploys the
+      # blocked one's code against the un-migrated database anyway. The
+      # deployment records that `environment: production` writes are the only
+      # thing here that knows what is live, so they are the base.
+      - name: Guard against unapplied migrations
+        # `github.event.inputs` values are strings, so `!inputs...` would read
+        # the string "false" as truthy and skip the guard in exactly the case it
+        # is wanted. Compare against "true" instead.
+        if: github.event.inputs.migrations_already_applied != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          rerun="Re-run this workflow from the Actions tab with 'migrations_already_applied' ticked."
+
+          # Usable means present in this clone. fetch-depth: 0 covers anything
+          # still reachable from a ref, but a commit that was rewritten away is
+          # gone, and an all-zeroes SHA is how a push reports having no parent.
+          usable() {
+            case "$1" in
+              "" | 0000000000000000000000000000000000000000) return 1 ;;
+            esac
+            git cat-file -e "$1^{commit}" 2>/dev/null
+          }
+
+          base=""
+          source=""
+          # Why the base is not the deployment record, if it ends up not being.
+          fell_back="there is no deployment on record"
+
+          deployments=""
+          if ! deployments=$(gh api \
+                 "repos/$REPO/deployments?environment=production&per_page=100" \
+                 --jq '.[] | "\(.id) \(.sha)"' 2>&1); then
+            echo "Could not read this environment's deployment history:"
+            printf '%s\n' "$deployments" | sed 's/^/  /'
+            echo
+            deployments=""
+            fell_back="the deployment history could not be read"
+          fi
+
+          # Newest first. This run has a deployment record of its own already,
+          # sitting in_progress, so insisting on "success" is also what skips it.
+          #
+          # A here-string rather than a pipe: a pipe would run the loop in a
+          # subshell and "base" would not survive it.
+          while read -r id sha; do
+            [ -n "$id" ] || continue
+            state=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" \
+                      --jq '.[0].state // ""' 2>/dev/null || true)
+            [ "$state" = "success" ] || continue
+
+            # The most recent success is what is live. An older one would be the
+            # wrong answer, so stop here either way.
+            if usable "$sha"; then
+              base="$sha"
+              source="the last successful production deployment, #$id"
+            else
+              echo "The last successful production deployment, #$id, is $sha,"
+              echo "which is not in this clone, so history was rewritten under"
+              echo "it. Falling back to the pushed range, which is narrower."
+              echo
+              fell_back="deployment #$id's commit is missing from this clone"
+            fi
+            break
+          done <<< "$deployments"
+
+          # Fallback, not the primary. This is also the bootstrap path: the very
+          # first run has no successful deployment to compare against, and
+          # failing closed there would mean it could never make one.
+          if [ -z "$base" ] && [ "$EVENT" = "push" ] && usable "$BEFORE"; then
+            base="$BEFORE"
+            source="the commit this push started from; $fell_back"
+          fi
+
+          if [ -z "$base" ]; then
+            echo "There is nothing to compare against: $fell_back, and this run"
+            echo "has no usable pushed range either, which is what a manual run,"
+            echo "a force push, or a re-created branch looks like."
+            echo
+            echo "$rerun"
+            echo "::error::Cannot work out which migrations are not yet deployed."
+            exit 1
+          fi
+
+          echo "Comparing $AFTER against $base"
+          echo "  ($source)"
+          echo
+
+          # A migration is a directory, so only paths nested one level below
+          # prisma/migrations/ count. That is also what skips
+          # migration_lock.toml, which sits directly in it.
+          added=$(
+            git diff --name-only --diff-filter=A "$base" "$AFTER" -- prisma/migrations \
+              | awk -F/ 'NF > 3 { print $3 }' \
+              | sort -u
+          )
+
+          if [ -n "$added" ]; then
+            echo "These migrations are not in production yet, and CI cannot apply them:"
+            echo
+            printf '%s\n' "$added" | sed 's/^/  /'
+            echo
+            echo "Run 'pnpm db:migrate' against production from a machine the database"
+            echo "allows, then deploy."
+            echo
+            echo "$rerun"
+            echo "::error::New migrations must be applied by hand before deploying."
+            exit 1
+          fi
+
+          echo "No migrations added since $base."
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Not redundant with the `prisma generate` inside `pnpm run deploy`. The
+      # engine deploys first and bundles `workers/engine/index.ts`, which imports
+      # the generated client, so the client has to exist before that step.
+      - name: Generate Prisma client
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder
+
+      # The engine goes first, and the order is not stylistic. wrangler.jsonc
+      # binds AccountRateLimiter and QuotaBucket by `script_name` on
+      # openreply-engine, so deploying the web Worker against an engine that does
+      # not exist yet fails outright.
+      #
+      # It is redeployed on every push even when only web code changed, because
+      # bindings attach on upload and nowhere else. An engine that has not been
+      # re-uploaded since a wrangler config edit behaves as if the new binding
+      # does not exist, and falls back silently.
+      - name: Deploy the engine Worker
+        run: pnpm deploy:engine
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # `pnpm run deploy`, not `pnpm deploy`. Bare `pnpm deploy` invokes pnpm's
+      # own deploy command and fails with ERR_PNPM_CANNOT_DEPLOY.
+      - name: Deploy the web Worker
+        run: pnpm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # A placeholder, and that is the right value rather than a shortcut.
+          # The OpenNext build runs `prisma generate`, which wants a datasource
+          # url in prisma.config.ts but only ever reads prisma/schema.prisma; it
+          # opens no connection, which is just as well from a runner the database
+          # would refuse.
+          #
+          # Nothing bakes this in either: `connectionString()` in
+          # lib/db/client.ts compiles to a live `process.env.DATABASE_URL` read
+          # in the emitted bundle, so no build-time value can reach production.
+          # The Worker prefers its HYPERDRIVE binding at runtime and falls back
+          # to its own DATABASE_URL secret. Passing the real connection string
+          # here would only widen where it can leak.
+          DATABASE_URL: postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder

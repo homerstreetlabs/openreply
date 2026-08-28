@@ -327,3 +327,146 @@ attached by checking the bindings table the deploy prints, which must list
 
 If `checks.engine.healthy` is false, queued jobs are not being consumed. Nothing will send
 even though webhooks are arriving, and the engine tail is where the reason will be.
+
+## Step 11: Deploy from GitHub Actions
+
+Once a deploy from your machine has worked at least once, `.github/workflows/ci.yml`
+can do the rest. Its `deploy` job runs on every push to `main`, after the checks
+pass, and repeats steps 5 and 6 in that order: `pnpm deploy:engine`, then
+`pnpm run deploy`.
+
+Do step 7 first. CI uploads scripts, it does not set secrets, so a Worker that has
+never had `wrangler secret put` run against it will deploy cleanly and then fail on
+its first request.
+
+### The two secrets
+
+Add both under Settings, Secrets and variables, Actions:
+
+| Secret                  | Value                                             |
+| ----------------------- | ------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | The token from the next section                   |
+| `CLOUDFLARE_ACCOUNT_ID` | Your account id, from `pnpm exec wrangler whoami` |
+
+wrangler reads both from the environment by itself, which is why the job sets them
+as plain `env` and pulls in no deploy action. Set the account id even though
+wrangler can sometimes work it out: doing so means listing the accounts the token
+can see, which needs permissions the list below deliberately leaves off, and it
+fails outright if the token sees more than one account.
+
+The job declares `environment: production`, so you can scope the two to that
+environment rather than the whole repository, and add required reviewers to it
+later without touching the workflow.
+
+### What the API token needs
+
+Create it at My Profile, API Tokens, Create Custom Token. Two permissions are
+load-bearing:
+
+- **Account, Workers Scripts, Edit.** Uploads both Workers. This also covers the
+  static assets, which is not obvious: OpenNext uploads them through
+  `/workers/scripts/:name/assets-upload-session`, a Workers Scripts endpoint, so
+  Workers Static Assets needs no permission of its own.
+- **Account, Queues, Edit.** `wrangler.engine.jsonc` declares a queue consumer, and
+  `wrangler deploy` registers that against the Queues API in a separate call
+  *after* the script upload. A token without it does not fail early: it uploads the
+  new engine, then fails on "Queue consumers", leaving new code live against an
+  unchanged consumer config. Read is not enough, because registering writes.
+
+Cloudflare's own Workers CI template is wider than that, and the extra permissions
+are worth understanding rather than pasting. It adds Account Settings (read),
+Workers KV Storage (edit), Workers R2 Storage (edit), Workers Routes (edit) on all
+zones, and User Details and Memberships (read). None of those are needed here:
+`open-next.config.ts` configures no incremental cache, so nothing touches KV or R2;
+neither wrangler config declares a `route`, so wrangler creates none; and the
+account and membership reads are for the account discovery that setting
+`CLOUDFLARE_ACCOUNT_ID` skips. Granting them does no harm if you would rather use
+the template, it just widens the token.
+
+Hyperdrive is not on the list on purpose. The binding is passed as an id in the
+upload metadata and wrangler never reads the config back, so the token does not
+need Hyperdrive access to deploy against it.
+
+If a deploy ever fails with an authorization error naming a specific binding, that
+binding's own product needs Edit on the token. Cloudflare documents this for
+Secrets Store, and the shape is general: attaching a resource to a Worker counts as
+a write against that resource, not a read.
+
+### Migrations stay manual, and CI enforces it
+
+The workflow never runs `prisma migrate deploy`. The database accepts connections
+only from whitelisted public IPs or from inside its VNet, and GitHub-hosted runners
+are neither, so a migrate step would not fail fast, it would hang until the job
+timed out. Do not solve this with a tunnel, a proxy or a self-hosted runner: each
+one ends with CI holding a route into the production database, which is a larger
+problem than running one command by hand.
+
+That leaves a real gap. A merge that adds a migration would otherwise deploy code
+expecting columns the database does not have. So the job refuses to deploy it.
+
+What it compares against is the commit that last reached production, not the range
+the push happens to cover. That distinction is the whole point. A push range would
+let the problem through by the side door: block a migration, merge something
+unrelated, and that second push adds no migration of its own, passes, and deploys
+the blocked one's code against the un-migrated database anyway. The deployment
+records that `environment: production` writes are the only thing in CI that knows
+what is actually live, so the guard reads them, which is what the job's
+`deployments: read` permission is for. It takes the most recent deployment whose
+latest status is `success`; this run's own record is `in_progress` by then, so it
+is skipped without any special case.
+
+The log always names the base commit it compared against and where that base came
+from. If it does not say, do not trust the result.
+
+- **Nothing added under `prisma/migrations/` since that commit** deploys.
+- **Anything added** fails before installing anything, naming each migration. Run
+  `pnpm db:migrate` as in step 3, from a machine the database allows, then go to
+  the Actions tab, run the CI workflow manually against `main`, and tick
+  **migrations_already_applied**, which skips the guard.
+- **No successful deployment on record yet** falls back to the pushed range and says
+  so. This is the first run on a fresh repository, and failing there would mean the
+  workflow could never make the deployment record it wants to read.
+- **A deployment on record whose commit is no longer in the repository**, after
+  history was rewritten under it, falls back the same way and says so. So does a
+  deployment history the API refuses to return.
+- **Neither a base nor a usable range** fails. That is a manual run or a force push
+  on a repository with no successful deployment yet. There is nothing to compare and
+  guessing is worse than stopping; the ticked box clears it.
+
+Because the base is what is live rather than what moved, a manual run no longer
+needs the box ticked just to have something to compare against. It still needs it to
+get past a migration the guard can see is undeployed, which is the case the box is
+for.
+
+Migrations in this schema have been additive, so applying one before its code
+deploys is safe. Keep it that way: a migration that drops or renames a column has to
+be split across two deploys whatever CI does.
+
+`DATABASE_URL` is set in the job, but to a placeholder rather than the real
+connection string. The OpenNext build runs `prisma generate`, which wants a
+datasource url present in `prisma.config.ts` and reads nothing but
+`prisma/schema.prisma`. The build value cannot reach production either way:
+`connectionString()` in `lib/db/client.ts` compiles to a live
+`process.env.DATABASE_URL` read in the emitted bundle, so it is resolved on the
+Worker, from the Hyperdrive binding first and that secret second. A real
+connection string in the workflow would buy nothing and give it one more place to
+leak from.
+
+### What the job deliberately does not run
+
+`pnpm verify:migration` is not wired in as a pre-deploy gate, which is a judgement
+call worth recording. Two of its assertions do bear on a deploy, the one matching
+every cron expression in `wrangler.engine.jsonc` to a job in the engine's table and
+the one checking both wrangler configs declare `send_email`. But most of the script
+asserts that a migration which has already happened stayed done, and it re-runs
+typecheck, lint, the suite and a second full OpenNext build that the `test` job this
+job depends on has already done.
+
+It also does not currently pass. Both failures are stale assertions rather than
+defects: the peer-floor gate still demands `next` 16.2.x, which the installed
+`@opennextjs/cloudflare` no longer supports, and the cross-creator audit gate
+matches `requirePlatformScope("ADMIN")` literally, which stopped matching when that
+call gained a second argument. A gate on the path that ships production, which goes
+red for reasons unrelated to what it guards, teaches people to bypass it. Fix those
+two and its home is the `test` job, where drift surfaces on the pull request and
+this job inherits it through `needs: test`.
