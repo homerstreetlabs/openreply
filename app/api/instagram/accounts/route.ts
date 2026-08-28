@@ -8,7 +8,12 @@ export const runtime = "nodejs";
  * The workspace's connected Instagram accounts — just enough for an account
  * selector. This is a single indexed query, unlike /api/dashboard/stats which
  * runs the full analytics aggregation. Pages that only need the account list
- * (e.g. the inbox) should use this so they aren't gated on heavy stats.
+ * should use this so they aren't gated on heavy stats: the inbox, campaigns,
+ * logs, the CSV import page and the campaign builder all do.
+ *
+ * Settings deliberately does not. It reads `workspace.dmsSentThisPeriod` and
+ * each account's `tokenExpiresAt` and `webhookSubscribed`, none of which are
+ * here, so it still needs the stats route.
  */
 export async function GET() {
   const workspaceId = await getCurrentWorkspaceId();
