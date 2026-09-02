@@ -14,13 +14,13 @@ import { mintReviewerLink } from "../lib/access/reviewer-link";
 
 const KEY = "reviewer-key-value";
 const SECRET = "nextauth-secret-value";
-const EMAIL = "review@getrecite.app";
+const EMAIL = "review@recite.fm";
 
 function configured() {
   vi.stubEnv("REVIEWER_ACCESS_KEY", KEY);
   vi.stubEnv("REVIEWER_EMAIL", EMAIL);
   vi.stubEnv("NEXTAUTH_SECRET", SECRET);
-  vi.stubEnv("NEXTAUTH_URL", "https://openreply.getrecite.app");
+  vi.stubEnv("NEXTAUTH_URL", "https://openreply.recite.fm");
 }
 
 beforeEach(() => {
@@ -100,7 +100,7 @@ describe("with the right key and an existing user", () => {
 
     const url = new URL(link.url);
     expect(url.origin + url.pathname).toBe(
-      "https://openreply.getrecite.app/api/auth/callback/nodemailer"
+      "https://openreply.recite.fm/api/auth/callback/nodemailer"
     );
     expect(url.searchParams.get("email")).toBe(EMAIL);
     expect(url.searchParams.get("callbackUrl")).toBe("/dashboard");

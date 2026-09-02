@@ -124,10 +124,10 @@ export default function PrivacyPage() {
         <p className="mt-3">
           For privacy questions or deletion requests, email{" "}
           <a
-            href="mailto:privacy@getrecite.app"
+            href="mailto:privacy@recite.fm"
             className="font-semibold text-accent underline"
           >
-            privacy@getrecite.app
+            privacy@recite.fm
           </a>
           .
         </p>
