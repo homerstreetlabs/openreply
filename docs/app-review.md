@@ -73,6 +73,22 @@ Record the message actually being sent from your app and landing in a Messenger 
 
 ---
 
+## Giving a reviewer a way in
+
+Sign-in is a magic link and registration is invitation-only, so an invitation alone strands a reviewer at the login form: the link goes to a mailbox they do not hold. Meta asks for working credentials, and "check the email we sent you" is not one.
+
+Invite the reviewer address from Admins like any other creator, then set `REVIEWER_ACCESS_KEY` and `REVIEWER_EMAIL` (see [setup](setup.md#reviewer-access-only-while-an-app-review-is-open)) and give Meta the URL:
+
+```
+https://your-domain/api/reviewer-access?key=<REVIEWER_ACCESS_KEY>
+```
+
+Connect a real Instagram professional account and a real Page to that workspace before you submit. A reviewer who signs in to an empty workspace sees a product that does nothing, which reads as a broken integration rather than an unconfigured demo.
+
+Unset `REVIEWER_ACCESS_KEY` when the review closes. It is a standing credential while it exists, and nothing expires it for you.
+
+Separately, `pages_messaging` review needs a real Facebook account holding the **Tester** role in App Roles. Meta's own note in the submission form is explicit that a test user created in App Roles will not do, because those cannot receive bot messages.
+
 ## Meta: Business Verification
 
 Meta usually requires business verification before granting Advanced Access on either platform. It asks for a document proving a legal entity: a business registration or license, articles of incorporation, a business tax document, or a business bank statement.
