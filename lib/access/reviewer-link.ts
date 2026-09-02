@@ -12,7 +12,8 @@
  *   - No `REVIEWER_ACCESS_KEY` means the route does not exist. Unsetting the
  *     secret is the revocation, and there is nothing to disable separately.
  *   - The address must already resolve to a user. This mints a token for an
- *     account an operator created deliberately; it cannot conjure one.
+ *     account an operator created deliberately; it cannot conjure one, which is
+ *     what closing registration was for.
  *   - `admit()` still runs, because the link goes through Auth.js's own
  *     callback rather than around it. Suspending the reviewer locks the link
  *     out even while the secret still exists.
@@ -20,7 +21,7 @@
  *     from a log or a referrer dies quickly. The secret is the durable half.
  */
 
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/db/client";
 import { getBaseUrl } from "@/lib/env";
 
@@ -30,8 +31,13 @@ import { getBaseUrl } from "@/lib/env";
  */
 const TOKEN_TTL_MS = 15 * 60 * 1000;
 
-/** The provider id in `lib/auth.ts`, which names the callback path. */
-const PROVIDER_ID = "nodemailer";
+/**
+ * Copied rather than imported from `lib/auth.ts`, which exports the same value
+ * as `EMAIL_PROVIDER_ID`. Importing it drags NextAuth's runtime in, and this
+ * module is unit tested without it. Change one and change the other, or the
+ * minted link 404s at a callback path that no longer exists.
+ */
+const EMAIL_PROVIDER_ID = "nodemailer";
 
 export type ReviewerLinkRefusal = "not_configured" | "bad_key" | "no_such_user";
 
@@ -40,38 +46,19 @@ export type ReviewerLink =
   | { readonly kind: "refused"; readonly reason: ReviewerLinkRefusal };
 
 /**
- * Auth.js stores the SHA-256 of `token + secret` and puts the raw token in the
- * URL, so a database leak does not yield a usable link. Mirrored from
- * `@auth/core/lib/actions/signin/send-token.js`, which is what will validate
- * this row. The two must agree or the callback rejects every link.
- */
-function hashToken(token: string, secret: string): string {
-  return createHash("sha256").update(`${token}${secret}`).digest("hex");
-}
-
-function randomToken(): string {
-  return Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex");
-}
-
-/**
  * Constant-time comparison that does not leak the secret's length.
  *
  * `timingSafeEqual` throws on a length mismatch, which is itself a signal, so
  * both sides are hashed to a fixed width first.
  */
 function keyMatches(supplied: string, expected: string): boolean {
-  const a = createHash("sha256").update(supplied).digest();
-  const b = createHash("sha256").update(expected).digest();
-  return timingSafeEqual(a, b);
+  return timingSafeEqual(
+    createHash("sha256").update(supplied).digest(),
+    createHash("sha256").update(expected).digest()
+  );
 }
 
-/**
- * Mint a magic link for the configured reviewer address.
- *
- * Returns the URL rather than redirecting, so the caller decides whether a
- * refusal is a 404 or something louder. Every refusal is a 404 today; keeping
- * the reason typed is what makes that a choice rather than an accident.
- */
+/** Returns the URL rather than redirecting, so the caller chooses the refusal. */
 export async function mintReviewerLink(suppliedKey: string | null): Promise<ReviewerLink> {
   const expectedKey = process.env.REVIEWER_ACCESS_KEY;
   const address = process.env.REVIEWER_EMAIL?.trim().toLowerCase();
@@ -84,9 +71,6 @@ export async function mintReviewerLink(suppliedKey: string | null): Promise<Revi
     return { kind: "refused", reason: "bad_key" };
   }
 
-  // The account has to exist already. Minting a link for an address nobody
-  // invited would make this a way to create users, which is exactly what
-  // closing registration was for.
   const user = await prisma.user.findUnique({
     where: { email: address },
     select: { id: true },
@@ -95,22 +79,22 @@ export async function mintReviewerLink(suppliedKey: string | null): Promise<Revi
     return { kind: "refused", reason: "no_such_user" };
   }
 
-  const token = randomToken();
+  const token = randomBytes(32).toString("hex");
   await prisma.verificationToken.create({
     data: {
       identifier: address,
-      token: hashToken(token, secret),
+      // Auth.js stores the SHA-256 of `token + secret` and puts the raw token
+      // in the URL, so a database leak does not yield a usable link. Mirrored
+      // from `@auth/core/lib/actions/signin/send-token.js`, which is what
+      // validates this row. The two must agree or every link is rejected.
+      token: createHash("sha256").update(`${token}${secret}`).digest("hex"),
       expires: new Date(Date.now() + TOKEN_TTL_MS),
     },
   });
 
-  const params = new URLSearchParams({
-    callbackUrl: "/dashboard",
-    token,
-    email: address,
-  });
+  const params = new URLSearchParams({ callbackUrl: "/dashboard", token, email: address });
   return {
     kind: "ok",
-    url: `${getBaseUrl()}/api/auth/callback/${PROVIDER_ID}?${params}`,
+    url: `${getBaseUrl()}/api/auth/callback/${EMAIL_PROVIDER_ID}?${params}`,
   };
 }

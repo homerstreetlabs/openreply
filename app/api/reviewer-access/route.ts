@@ -22,17 +22,12 @@ export async function GET(request: Request) {
   const key = new URL(request.url).searchParams.get("key");
   const link = await mintReviewerLink(key);
 
-  // Every refusal is a 404. A wrong key and an unconfigured deployment look
-  // identical from outside, so probing tells an attacker nothing about whether
-  // reviewer access is switched on.
+  // A wrong key and an unconfigured deployment look identical from outside, so
+  // probing tells nobody whether reviewer access is switched on.
   if (link.kind === "refused") {
     return new NextResponse("Not found", { status: 404 });
   }
 
-  // 302, not 307: the redirect target is a GET regardless of how this was
-  // reached, and the link should not be treated as cacheable.
-  return NextResponse.redirect(link.url, {
-    status: 302,
-    headers: { "Cache-Control": "no-store" },
-  });
+  // The token behind this URL is spent on redemption, so it must not be stored.
+  return NextResponse.redirect(link.url, { headers: { "Cache-Control": "no-store" } });
 }

@@ -36,7 +36,7 @@ beforeEach(() => {
  * into opening one.
  */
 describe("with no REVIEWER_ACCESS_KEY", () => {
-  it("refuses even when the key argument is empty, which is what an absent env var equals", async () => {
+  it("refuses whatever key is supplied", async () => {
     vi.stubEnv("REVIEWER_EMAIL", EMAIL);
     vi.stubEnv("NEXTAUTH_SECRET", SECRET);
 
@@ -65,7 +65,7 @@ describe("with a wrong key", () => {
     });
   });
 
-  it("refuses a prefix of the real key, which a length-only comparison would accept", async () => {
+  it("refuses a prefix of the real key", async () => {
     configured();
     await expect(mintReviewerLink(KEY.slice(0, 5))).resolves.toEqual({
       kind: "refused",
@@ -96,9 +96,7 @@ describe("with the right key and an existing user", () => {
   it("returns a callback URL Auth.js will accept", async () => {
     configured();
     const link = await mintReviewerLink(KEY);
-
-    expect(link.kind).toBe("ok");
-    if (link.kind !== "ok") return;
+    if (link.kind !== "ok") throw new Error("expected a link");
 
     const url = new URL(link.url);
     expect(url.origin + url.pathname).toBe(
@@ -129,7 +127,7 @@ describe("with the right key and an existing user", () => {
     expect(stored.identifier).toBe(EMAIL);
   });
 
-  it("expires the token well inside the day Auth.js would allow a mailed link", async () => {
+  it("expires the token well inside the day a mailed link would get", async () => {
     configured();
     await mintReviewerLink(KEY);
 
@@ -139,7 +137,7 @@ describe("with the right key and an existing user", () => {
     expect(ms).toBeLessThanOrEqual(15 * 60 * 1000);
   });
 
-  it("mints a fresh token per request, so a captured URL is not reusable as a generator", async () => {
+  it("mints a fresh token per request", async () => {
     configured();
     const first = await mintReviewerLink(KEY);
     const second = await mintReviewerLink(KEY);
