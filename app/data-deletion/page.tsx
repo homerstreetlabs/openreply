@@ -55,10 +55,10 @@ export default function DataDeletionPage() {
         <p className="mt-3">
           To have your stored data deleted, email{" "}
           <a
-            href="mailto:privacy@getrecite.app"
+            href="mailto:privacy@recite.fm"
             className="font-semibold text-accent underline"
           >
-            privacy@getrecite.app
+            privacy@recite.fm
           </a>{" "}
           from the address you use to sign in. Include the workspace name and
           the Instagram username or Facebook Page name connected to it.

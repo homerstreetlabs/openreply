@@ -98,6 +98,17 @@ Copy `.env.example` to `.env` for local work. In production every value is a Wor
 | `EMAIL_SERVER` | SMTP URL, used **only outside a Worker**: scripts, tests and `pnpm dev`. In production the Workers `EMAIL` binding sends instead, and this is never read. For Cloudflare Email Sending the URL is `smtps://api_token:<CF_API_TOKEN>@smtp.mx.cloudflare.net:465`, where the username is the literal string `api_token` and the password is an API token with the `Email Sending: Edit` permission. Any other SMTP server works too. URL-encode special characters, so `@` becomes `%40`. |
 | `EMAIL_FROM` | The sender address, and required rather than defaulted. It must be on the domain you onboarded to Email Sending, because Cloudflare rejects any other sender. |
 
+### Reviewer access, only while an app review is open
+
+Set these two only when a platform reviewer needs to sign in, and unset them the day the review closes. Together they are a working credential.
+
+| Variable | What it is |
+| --- | --- |
+| `REVIEWER_ACCESS_KEY` | Random secret. `openssl rand -hex 32`. `GET /api/reviewer-access?key=<value>` signs the reviewer straight in. Absent, the route is a 404 and there is no reviewer access at all. Unsetting it is how you revoke. |
+| `REVIEWER_EMAIL` | The address the link signs in as. It must already belong to a user you invited, because the route mints a link for an existing account and will not create one. |
+
+Give the reviewer the URL, not the key on its own. The link still passes through `admit()`, so suspending that user from Admins locks it out even before you unset the secret. See [App review](app-review.md).
+
 ### Meta, for Instagram and Facebook
 
 | Variable | What it is |

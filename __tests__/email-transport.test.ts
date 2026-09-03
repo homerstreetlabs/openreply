@@ -27,7 +27,7 @@ const email = { to: "creator@example.com", subject: "Hi", text: "t", html: "<p>t
 beforeEach(() => {
   vi.clearAllMocks();
   bindings.current = null;
-  process.env.EMAIL_FROM = "OpenReply <login@getrecite.app>";
+  process.env.EMAIL_FROM = "OpenReply <login@recite.fm>";
   process.env.EMAIL_SERVER = "smtps://api_token:tok@smtp.mx.cloudflare.net:465";
   send.mockResolvedValue({ messageId: "m1" });
   sendMail.mockResolvedValue({ rejected: [], pending: [] });
