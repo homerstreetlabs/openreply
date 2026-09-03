@@ -32,41 +32,41 @@ export default function SeoPageShell({ config }: { config: SeoPageConfig }) {
     <main className="min-h-screen bg-background text-foreground">
       <PublicSiteHeader />
 
-      <section className="border-b border-white/10 bg-zinc-950/70">
+      <section className="border-b border-border bg-surface">
         <div className="mx-auto grid w-full max-w-7xl gap-10 px-5 py-20 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8">
           <div>
-            <p className="text-sm font-bold uppercase text-cyan-200">
+            <p className="text-sm font-bold uppercase text-muted">
               {config.eyebrow}
             </p>
-            <h1 className="mt-4 text-5xl font-black leading-tight text-white sm:text-6xl">
+            <h1 className="mt-4 text-5xl font-black leading-tight text-foreground sm:text-6xl">
               {config.title}
             </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-zinc-400">
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-muted">
               {config.description}
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/login"
-                className="inline-flex items-center justify-center bg-cyan-300 px-6 py-3 text-sm font-bold text-zinc-950 transition hover:bg-cyan-200"
+                className="inline-flex items-center justify-center bg-accent px-6 py-3 text-sm font-bold text-white transition hover:bg-accent-hover"
               >
                 {config.primaryCta}
               </Link>
               <Link
                 href="/templates"
-                className="inline-flex items-center justify-center border border-white/10 bg-white/[0.04] px-6 py-3 text-sm font-bold text-white transition hover:border-white/20 hover:bg-white/[0.08]"
+                className="inline-flex items-center justify-center border border-border bg-background px-6 py-3 text-sm font-bold text-foreground transition hover:border-border-hover hover:bg-surface-hover"
               >
                 {config.secondaryCta ?? "Browse templates"}
               </Link>
             </div>
           </div>
 
-          <div className="border border-white/10 bg-white/[0.035] p-6">
-            <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
+          <div className="border border-border bg-surface p-6">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted">
               Campaign OS checklist
             </p>
             <ul className="mt-5 space-y-4">
               {config.bullets.map((bullet) => (
-                <li key={bullet} className="flex gap-3 text-sm leading-6 text-zinc-300">
+                <li key={bullet} className="flex gap-3 text-sm leading-6 text-muted">
                   {bullet}
                 </li>
               ))}
@@ -78,35 +78,35 @@ export default function SeoPageShell({ config }: { config: SeoPageConfig }) {
       <section className="mx-auto w-full max-w-7xl px-5 py-16 sm:px-6 lg:px-8">
         <div className="grid gap-4 md:grid-cols-3">
           {config.sections.map((section) => (
-            <article key={section.title} className="border border-white/10 bg-white/[0.035] p-6">
-              <h2 className="text-2xl font-black text-white">{section.title}</h2>
-              <p className="mt-4 text-sm leading-7 text-zinc-400">{section.body}</p>
+            <article key={section.title} className="border border-border bg-surface p-6">
+              <h2 className="text-2xl font-black text-foreground">{section.title}</h2>
+              <p className="mt-4 text-sm leading-7 text-muted">{section.body}</p>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="border-y border-white/10 bg-white/[0.025] py-16">
+      <section className="border-y border-border bg-surface py-16">
         <div className="mx-auto w-full max-w-7xl px-5 sm:px-6 lg:px-8">
-          <h2 className="text-4xl font-black text-white">{config.comparisonTitle}</h2>
-          <div className="mt-8 overflow-hidden border border-white/10">
-            <div className="grid grid-cols-[0.8fr_1fr_1fr] border-b border-white/10 bg-zinc-950 text-xs font-bold uppercase tracking-wide text-zinc-500">
+          <h2 className="text-4xl font-black text-foreground">{config.comparisonTitle}</h2>
+          <div className="mt-8 overflow-hidden border border-border">
+            <div className="grid grid-cols-[0.8fr_1fr_1fr] border-b border-border bg-surface text-xs font-bold uppercase tracking-wide text-muted">
               <div className="p-4">Need</div>
-              <div className="p-4 text-cyan-100">OpenReply</div>
+              <div className="p-4 text-muted">OpenReply</div>
               <div className="p-4">Generic automation</div>
             </div>
             {config.comparisons.map((item) => (
               <div
                 key={item.label}
-                className="grid grid-cols-1 border-b border-white/10 last:border-0 md:grid-cols-[0.8fr_1fr_1fr]"
+                className="grid grid-cols-1 border-b border-border last:border-0 md:grid-cols-[0.8fr_1fr_1fr]"
               >
-                <div className="bg-zinc-950/50 p-4 text-sm font-semibold text-white">
+                <div className="bg-surface p-4 text-sm font-semibold text-foreground">
                   {item.label}
                 </div>
-                <div className="p-4 text-sm leading-6 text-zinc-300">
+                <div className="p-4 text-sm leading-6 text-muted">
                   {item.ours}
                 </div>
-                <div className="p-4 text-sm leading-6 text-zinc-500">
+                <div className="p-4 text-sm leading-6 text-muted">
                   {item.other}
                 </div>
               </div>
@@ -117,13 +117,13 @@ export default function SeoPageShell({ config }: { config: SeoPageConfig }) {
 
       <section className="mx-auto grid w-full max-w-7xl gap-8 px-5 py-16 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8">
         <div>
-          <p className="text-sm font-bold uppercase text-emerald-200">
+          <p className="text-sm font-bold uppercase text-muted">
             Start from a template
           </p>
-          <h2 className="mt-3 text-4xl font-black text-white">
+          <h2 className="mt-3 text-4xl font-black text-foreground">
             Launch a campaign faster than building a chatbot flow
           </h2>
-          <p className="mt-5 text-sm leading-7 text-zinc-400">
+          <p className="mt-5 text-sm leading-7 text-muted">
             Use a campaign template, connect the right Instagram account, pick
             the post, and ship a measurable comment-to-DM loop.
           </p>
@@ -133,7 +133,7 @@ export default function SeoPageShell({ config }: { config: SeoPageConfig }) {
             <Link
               key={link.href}
               href={link.href}
-              className="border border-white/10 bg-white/[0.035] p-5 text-sm font-semibold text-white transition hover:border-cyan-200/30 hover:bg-cyan-300/10"
+              className="border border-border bg-surface p-5 text-sm font-semibold text-foreground transition hover:border-accent/30 hover:bg-accent/10"
             >
               {link.label}
             </Link>
@@ -141,19 +141,19 @@ export default function SeoPageShell({ config }: { config: SeoPageConfig }) {
         </div>
       </section>
 
-      <section className="border-t border-white/10 bg-zinc-950/70 py-16">
+      <section className="border-t border-border bg-surface py-16">
         <div className="mx-auto grid w-full max-w-7xl gap-8 px-5 sm:px-6 lg:grid-cols-[0.8fr_1.2fr] lg:px-8">
           <div>
-            <p className="text-sm font-bold uppercase text-cyan-200">FAQ</p>
-            <h2 className="mt-3 text-4xl font-black text-white">
+            <p className="text-sm font-bold uppercase text-muted">FAQ</p>
+            <h2 className="mt-3 text-4xl font-black text-foreground">
               Search questions, answered clearly
             </h2>
           </div>
           <div className="grid gap-3">
             {config.faqs.map((faq) => (
-              <article key={faq.title} className="border border-white/10 bg-white/[0.035] p-5">
-                <h3 className="text-lg font-bold text-white">{faq.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-zinc-400">{faq.body}</p>
+              <article key={faq.title} className="border border-border bg-surface p-5">
+                <h3 className="text-lg font-bold text-foreground">{faq.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-muted">{faq.body}</p>
               </article>
             ))}
           </div>
@@ -161,17 +161,17 @@ export default function SeoPageShell({ config }: { config: SeoPageConfig }) {
       </section>
 
       <section className="mx-auto w-full max-w-7xl px-5 py-16 sm:px-6 lg:px-8">
-        <div className="border border-cyan-200/20 bg-cyan-300/10 p-8 text-center">
-          <h2 className="text-4xl font-black text-white">
+        <div className="border border-accent/20 bg-accent/10 p-8 text-center">
+          <h2 className="text-4xl font-black text-foreground">
             Turn the next high-intent comment into a private reply
           </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-7 text-zinc-300">
+          <p className="mx-auto mt-4 max-w-2xl text-sm leading-7 text-foreground">
             OpenReply is built for Instagram professional accounts, official
             Meta private replies, and campaign reporting teams can show clients.
           </p>
           <Link
             href="/login"
-            className="mt-8 inline-flex items-center justify-center bg-cyan-300 px-6 py-3 text-sm font-bold text-zinc-950 transition hover:bg-cyan-200"
+            className="mt-8 inline-flex items-center justify-center bg-accent px-6 py-3 text-sm font-bold text-white transition hover:bg-accent-hover"
           >
             Start free
           </Link>

@@ -12,41 +12,41 @@ export default function TemplateVisual({
   return (
     <div className="border border-border p-4">
       <div className="border border-border bg-surface p-4">
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+        <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">
               Comment trigger
             </p>
-            <p className="mt-1 text-sm font-bold text-white">
+            <p className="mt-1 text-sm font-bold text-foreground">
               {template.triggerExample}
             </p>
           </div>
-          <span className="border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-semibold text-zinc-300">
+          <span className="border border-border bg-background px-3 py-1 text-xs font-semibold text-muted">
             {template.category}
           </span>
         </div>
 
         <div className={`grid gap-3 pt-4 ${compact ? "" : "sm:grid-cols-2"}`}>
-          <div className="border border-white/10 bg-white/[0.035] p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <div className="border border-border bg-surface p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">
               Keywords
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {template.keywords.map((keyword) => (
                 <span
                   key={keyword}
-                  className="border border-white/10 bg-white/[0.05] px-2 py-1 text-xs font-bold text-white"
+                  className="border border-border bg-background px-2 py-1 text-xs font-bold text-foreground"
                 >
                   {keyword}
                 </span>
               ))}
             </div>
           </div>
-          <div className="border border-white/10 bg-white/[0.035] p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <div className="border border-border bg-surface p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">
               Private reply
             </p>
-            <p className="mt-3 text-sm leading-6 text-zinc-200">
+            <p className="mt-3 text-sm leading-6 text-muted">
               {template.privateReplyPreview}
             </p>
           </div>
