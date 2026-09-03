@@ -2,15 +2,12 @@
  * Public surface theme — Unit Test
  *
  * The regression this locks down: the light-theme conversion flipped the tokens
- * in globals.css and repainted the surfaces it touched, but never reached the
- * signed-out pages. They kept their dark-era classes, so on the white canvas
- * headings rendered white on white at a 1.00:1 contrast ratio. A browser audit
- * of the eleven public routes counted 237 elements below WCAG AA, and the
- * invitation page could not tell an invited person who had invited them.
+ * in globals.css but never reached the signed-out pages, so headings rendered
+ * white on white at 1.00:1. A browser audit of the eleven public routes counted
+ * 237 elements below WCAG AA.
  *
- * Palette literals are the mechanism, so the guard bans them here rather than
- * asserting a contrast number no unit test can measure. The token layer is the
- * only thing that knows which way the canvas points.
+ * The guard bans palette literals rather than asserting a contrast number,
+ * which a unit test cannot measure.
  */
 
 import { describe, it, expect } from "vitest";
@@ -32,9 +29,8 @@ const PALETTE =
   /(?:hover:|focus:|active:)?(?:text|bg|border|ring|divide|from|via|to)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d{2,3})?(?:\/(?:\[[^\]]+\]|\d+))?/g;
 
 /**
- * A filled accent button is the one place a literal still belongs. The accent
- * is orange in both directions a canvas can point, so its label is white by
- * construction rather than by assuming a dark page behind it.
+ * The one literal that still belongs. An accent button's label is white
+ * because the accent is orange, not because the page behind it is dark.
  */
 const isAccentButtonLabel = (className: string, token: string) =>
   token === "text-white" && /(?<![\w/-])bg-accent(?![\w/-])/.test(className);
