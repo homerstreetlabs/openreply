@@ -75,10 +75,17 @@ export default function Sidebar({
           {items.map((item) => {
             const isActive =
               pathname === item.href || pathname.startsWith(item.href + "/");
+            // Every one of these routes is dynamic, so a prefetch is a server
+            // invocation that takes its own database connection. Ten links in
+            // the viewport means ten of them on every page load, which is over
+            // Hyperdrive's origin_connection_limit before the page has asked
+            // for its own data. The excess does not error, it hangs, and the
+            // page waits on a request that never returns.
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={false}
                 onClick={onClose}
                 aria-current={isActive ? "page" : undefined}
                 className={`
