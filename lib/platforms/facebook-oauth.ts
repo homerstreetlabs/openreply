@@ -44,11 +44,21 @@ export const FACEBOOK_SCOPES = [
   "pages_read_engagement",
 ] as const;
 
+/**
+ * Facebook Login for Business is configuration-driven, and the configuration is
+ * what carries the permissions. `FACEBOOK_SCOPES` above stays as the record of
+ * what the flow uses, and the configuration in the app dashboard must list the
+ * same four, but the dialog itself is not told them: passing `scope` here is the
+ * consumer Facebook Login flow, which this app does not have and must not add
+ * (see docs/setup.md#facebook-setup). Sending it anyway is why the dialog
+ * answered "Facebook Login is currently unavailable for this app" rather than
+ * any error naming a cause.
+ */
 export function getFacebookAuthorizationUrl(redirectUri: string, state: string): string {
   const params = new URLSearchParams({
     client_id: requireEnv("FACEBOOK_APP_ID"),
+    config_id: requireEnv("FACEBOOK_LOGIN_CONFIG_ID"),
     redirect_uri: redirectUri,
-    scope: FACEBOOK_SCOPES.join(","),
     response_type: "code",
     state,
   });

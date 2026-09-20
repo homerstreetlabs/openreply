@@ -324,7 +324,25 @@ https://openreply-web.your-subdomain.workers.dev/api/connect/facebook/callback
 
 The older `/api/facebook/callback` still works. Keep both listed through the cutover.
 
-Set `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` in your environment. The connect flow requests `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, and `pages_read_engagement` — the four it actually uses. It does not request `business_management`, even though the use case grants it, because nothing here calls a Business Manager endpoint. That does not remove it from the App Review submission; see [app-review.md](app-review.md).
+### Step 3: Create the login configuration
+
+Facebook Login for Business is configuration-driven. Without a configuration the dialog has no permissions to ask for, and Meta answers **"Facebook Login is currently unavailable for this app, since we are updating additional details for this app."** That message names no cause and is not about your app being mid-update, so it is worth recognising on sight.
+
+In **Facebook Login for Business > Configurations**, create one:
+
+| Step | Choose | Why |
+| --- | --- | --- |
+| Login variation | General | WhatsApp Embedded Signup is a different product. |
+| Access token | **User access token** | The connect flow exchanges a code for a user token, makes it long-lived, then derives Page tokens from `/me/accounts`. A system-user token is a different flow this code does not implement. |
+| Permissions | `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, `pages_read_engagement` | The four the flow uses. Selecting `pages_manage_metadata` pulls in `pages_show_list` automatically. |
+
+Login variation and access token **cannot be changed later**. A wrong choice means creating a second configuration, not editing this one.
+
+Set `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` and `FACEBOOK_LOGIN_CONFIG_ID` in your environment. The configuration id is printed when you create it and is shown on the Configurations page.
+
+Permissions come from the configuration, so the dialog is not sent a `scope`. Sending one is the consumer Facebook Login flow, which this app deliberately does not have. `FACEBOOK_SCOPES` in the code stays as the record of what the flow uses and must match the configuration.
+
+The connect flow does not request `business_management`, even though the use case grants it, because nothing here calls a Business Manager endpoint. That does not remove it from the App Review submission; see [app-review.md](app-review.md).
 
 Connecting brings across every Page you can message, so one authorisation enrols all of them.
 
