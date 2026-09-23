@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import StatusBadge from "@/components/status-badge";
-import { accountLabel } from "@/lib/campaigns/options";
+import { accountLabel, platformName } from "@/lib/campaigns/options";
 import { runAction } from "@/lib/tracking/activity";
 import type { Platform } from "@/app/generated/prisma/client";
 
@@ -167,6 +167,9 @@ export default function ActivityPage() {
                         run.connectedAccount.platform,
                         run.connectedAccount.username
                       )}
+                      <span className="block text-xs text-zinc-500">
+                        {platformName(run.connectedAccount.platform)}
+                      </span>
                     </td>
                     <td className="px-4 py-4 sm:px-6">
                       <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted">
