@@ -148,8 +148,7 @@ export function responseBuckets(
       // whole budget, so replies are also capped per video.
       if (action === "publicReply" && budget.postId) {
         // Counted in quota units, because the broker spends the reservation's one
-        // cost against every bucket in it. A cap of 20 against a 50-unit reply
-        // refused every reply to a video.
+        // cost against every bucket in it.
         buckets.push({
           scope: { kind: "account", id: `${budget.accountExternalId}:${budget.postId}` },
           meter: "youtube:units_per_video",

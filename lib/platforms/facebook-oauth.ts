@@ -50,9 +50,8 @@ export const FACEBOOK_SCOPES = [
  * what the flow uses, and the configuration in the app dashboard must list the
  * same four, but the dialog itself is not told them: passing `scope` here is the
  * consumer Facebook Login flow, which this app does not have and must not add
- * (see docs/setup.md#facebook-setup). Sending it anyway is why the dialog
- * answered "Facebook Login is currently unavailable for this app" rather than
- * any error naming a cause.
+ * (see docs/setup.md#facebook-setup). The dialog answers it with "Facebook
+ * Login is currently unavailable for this app" and names no cause.
  */
 export function getFacebookAuthorizationUrl(redirectUri: string, state: string): string {
   const params = new URLSearchParams({
