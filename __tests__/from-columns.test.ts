@@ -99,4 +99,19 @@ describe("reading a campaign's columns as a plan", () => {
 
     expect(result.ok).toBe(false);
   });
+
+  it("leaves the DM leg out when there is no DM, so a reply-only YouTube campaign compiles", () => {
+    const draft = draftFromColumns({
+      ...base,
+      dmMessage: "",
+      publicReplyEnabled: true,
+      publicReplyMessages: [
+        "It's the Posera app, free on iOS and Android",
+        "That's Posera, free on the App Store and Google Play",
+      ],
+    });
+
+    expect(draft.map((step) => step.kind)).toEqual(["publicReply"]);
+    expect(compile("YOUTUBE", platformCeiling("YOUTUBE"), draft).ok).toBe(true);
+  });
 });

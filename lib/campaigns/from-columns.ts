@@ -106,7 +106,7 @@ export function draftFromColumns(
         primaryLabel: campaign.linkButtonLabel,
       },
     });
-  } else {
+  } else if (campaign.dmMessage.trim()) {
     steps.push({ kind: "directMessage", spec: { text: campaign.dmMessage } });
   }
 

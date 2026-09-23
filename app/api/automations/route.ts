@@ -4,6 +4,7 @@ import { actingWorkspace, PlatformAccessError } from "@/lib/tenancy/acting-works
 import { compile } from "@/lib/campaigns/compile";
 import { draftFromColumns } from "@/lib/campaigns/from-columns";
 import { platformCeiling } from "@/lib/campaigns/steps";
+import { campaignOptions } from "@/lib/campaigns/options";
 import { prisma } from "@/lib/db/client";
 import { calculateCtr, normalizeTopKeywords } from "@/lib/tracking/analytics";
 import { buildTrackedUrl } from "@/lib/tracking/message";
@@ -30,7 +31,9 @@ const createAutomationSchema = z
     keywords: z.array(z.string().min(1).max(50)).max(10).optional().default([]),
     matchAnyWord: z.boolean().optional().default(false),
     dmTriggerEnabled: z.boolean().optional().default(false),
-    dmMessage: z.string().min(1).max(1000),
+    // Required only where the account can send one, which is not known until
+    // the account is resolved below. YouTube and TikTok campaigns have no DM.
+    dmMessage: z.string().max(1000).optional().default(""),
     openingDmEnabled: z.boolean().optional().default(false),
     openingDmMessage: z.string().max(1000).optional().nullable(),
     openingDmButtonLabel: z.string().max(64).optional().nullable(),
@@ -375,6 +378,13 @@ export async function POST(request: NextRequest) {
   if (!account) {
     return NextResponse.json(
       { success: false, error: "Connect an account before creating campaigns" },
+      { status: 400 }
+    );
+  }
+
+  if (campaignOptions(account.platform).dm && !parsed.data.dmMessage.trim()) {
+    return NextResponse.json(
+      { success: false, error: "Write the DM this campaign sends" },
       { status: 400 }
     );
   }
