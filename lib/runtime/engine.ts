@@ -29,6 +29,17 @@ import type { Step, StepKind, SignalKind } from "@/lib/campaigns/steps";
 /** How long a consumer may hold a run before another may take it. */
 const LEASE_MS = 5 * 60_000;
 
+/** The run column a sent step stamps. Activity derives the run's action from them. */
+const SENT_AT = {
+  publicReply: "publicReplySentAt",
+  directMessage: "dmSentAt",
+  linkButtons: "dmSentAt",
+  openingDm: "dmSentAt",
+  followGate: null,
+  conversationMessage: "dmSentAt",
+  followUp: "dmSentAt",
+} as const satisfies Record<StepKind, "dmSentAt" | "publicReplySentAt" | null>;
+
 export type Cause =
   /** A new comment or inbound DM opened this run. */
   | { readonly kind: "trigger" }
@@ -242,7 +253,11 @@ export async function advanceRun(
       }
 
       cursor += 1;
-      await prisma.responseRun.update({ where: { id: runId }, data: { cursor } });
+      const sentAt = SENT_AT[step.kind];
+      await prisma.responseRun.update({
+        where: { id: runId },
+        data: sentAt ? { cursor, [sentAt]: new Date() } : { cursor },
+      });
     }
 
     await finish(runId, "SENT", null);
@@ -282,7 +297,6 @@ async function finish(
     awaitUntil: null,
     onTimeout: null,
   };
-  if (status === "SENT") data.dmSentAt = new Date();
 
   await prisma.responseRun.update({ where: { id: runId }, data });
 }

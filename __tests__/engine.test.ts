@@ -150,6 +150,27 @@ describe("advancing the plan", () => {
     const finished = lastArg(mockPrisma.responseRun.update, "run update").data;
     expect(finished.status).toBe("SENT");
   });
+
+  it("records a reply-only run as a public reply, not a DM", async () => {
+    const yt = builders("YOUTUBE");
+    const execute = vi.fn(async (): Promise<StepResult> => ({ kind: "done" }));
+
+    await advanceRun("run_1", { kind: "trigger" }, [yt.publicReply({ variants: ["a", "b"] })], execute, "YOUTUBE");
+
+    const writes = mockPrisma.responseRun.update.mock.calls.map((c) => c[0].data);
+    expect(writes.some((d) => d.publicReplySentAt instanceof Date)).toBe(true);
+    expect(writes.some((d) => "dmSentAt" in d)).toBe(false);
+  });
+
+  it("records a DM once a messaging step sends", async () => {
+    const execute = vi.fn(async (): Promise<StepResult> => ({ kind: "done" }));
+
+    await advanceRun("run_1", { kind: "trigger" }, plan, execute, "INSTAGRAM");
+
+    const writes = mockPrisma.responseRun.update.mock.calls.map((c) => c[0].data);
+    expect(writes.some((d) => d.publicReplySentAt instanceof Date)).toBe(true);
+    expect(writes.some((d) => d.dmSentAt instanceof Date)).toBe(true);
+  });
 });
 
 /**
