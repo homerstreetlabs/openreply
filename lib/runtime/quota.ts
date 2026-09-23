@@ -148,6 +148,8 @@ interface BucketReply {
   used: number;
   remaining: number;
   retryAfterMs: number | null;
+  /** The object serving a group is named after its coarsest bucket, not the one that refused. */
+  refusedBy: string | null;
 }
 
 async function callBucket(
@@ -208,7 +210,7 @@ export async function reserve(
       );
       return {
         ok: false,
-        refusal: { bucket: owner, remaining: reply.remaining, retryAfterMs: reply.retryAfterMs },
+        refusal: { bucket: reply.refusedBy ?? owner, remaining: reply.remaining, retryAfterMs: reply.retryAfterMs },
       };
     }
     taken.push(owner);

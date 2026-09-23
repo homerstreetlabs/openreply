@@ -62,6 +62,7 @@ export class QuotaBucket {
     let used = 0;
     let remaining = Number.POSITIVE_INFINITY;
     let retryAfterMs: number | null = null;
+    let refusedBy: string | null = null;
 
     for (const spec of body.buckets) {
       const key = `${spec.scope.kind}:${spec.scope.id}:${spec.meter}`;
@@ -102,6 +103,7 @@ export class QuotaBucket {
 
       if (headroom < body.spend.units || participantHeadroom < body.spend.units) {
         allowed = false;
+        refusedBy = key;
         retryAfterMs = windowResetMs(spec.window, counter.windowStart, now);
         break;
       }
@@ -126,6 +128,7 @@ export class QuotaBucket {
       used,
       remaining: Number.isFinite(remaining) ? remaining : 0,
       retryAfterMs,
+      refusedBy,
     });
   }
 
