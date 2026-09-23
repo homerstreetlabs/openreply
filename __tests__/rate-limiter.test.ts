@@ -169,7 +169,7 @@ describe("per-post reply caps", () => {
     });
 
     expect(buckets).toHaveLength(2);
-    const perVideo = buckets.find((b) => b.meter === "youtube:replies_per_video");
+    const perVideo = buckets.find((b) => b.meter === "youtube:units_per_video");
     expect(perVideo?.scope.id).toBe("channel_1:video_1");
   });
 

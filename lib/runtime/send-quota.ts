@@ -147,11 +147,17 @@ export function responseBuckets(
       // than on us. The daily pool alone does not stop one video absorbing the
       // whole budget, so replies are also capped per video.
       if (action === "publicReply" && budget.postId) {
+        // Counted in quota units, because the broker spends the reservation's one
+        // cost against every bucket in it. A cap of 20 against a 50-unit reply
+        // refused every reply to a video.
         buckets.push({
           scope: { kind: "account", id: `${budget.accountExternalId}:${budget.postId}` },
-          meter: "youtube:replies_per_video",
+          meter: "youtube:units_per_video",
           window: { kind: "calendarDay", resetHourUtc: 8 },
-          capacity: { kind: "fixed", units: REPLIES_PER_POST_PER_DAY.YOUTUBE },
+          capacity: {
+            kind: "fixed",
+            units: REPLIES_PER_POST_PER_DAY.YOUTUBE * YOUTUBE_UNITS.publicReply,
+          },
         });
       }
 
