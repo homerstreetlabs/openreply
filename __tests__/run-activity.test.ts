@@ -9,13 +9,13 @@ import { runAction, runOutcome } from "../lib/tracking/activity";
 describe("runAction", () => {
   it("calls a public-reply-only run what it is", () => {
     expect(
-      runAction({ dmSentAt: null, publicReplySentAt: new Date("2026-08-01") })
+      runAction({ dmSentAt: null, publicReplySentAt: new Date("2026-08-01") }, "YOUTUBE")
     ).toBe("PUBLIC_REPLY");
   });
 
   it("calls a DM a DM", () => {
     expect(
-      runAction({ dmSentAt: new Date("2026-08-01"), publicReplySentAt: null })
+      runAction({ dmSentAt: new Date("2026-08-01"), publicReplySentAt: null }, "INSTAGRAM")
     ).toBe("DIRECT_MESSAGE");
   });
 
@@ -29,14 +29,22 @@ describe("runAction", () => {
       runAction({
         dmSentAt: new Date("2026-08-01T00:01:00Z"),
         publicReplySentAt: new Date("2026-08-01T00:00:00Z"),
-      })
+      }, "INSTAGRAM")
     ).toBe("DIRECT_MESSAGE");
   });
 
-  it("does not invent a channel for a run that has sent nothing", () => {
-    expect(runAction({ dmSentAt: null, publicReplySentAt: null })).toBe(
+  it("attributes an unsent run to a DM where one can be sent", () => {
+    expect(runAction({ dmSentAt: null, publicReplySentAt: null }, "INSTAGRAM")).toBe(
       "DIRECT_MESSAGE"
     );
+  });
+
+  it("never calls a run a DM on a platform with no DM", () => {
+    for (const platform of ["YOUTUBE", "TIKTOK"] as const) {
+      expect(runAction({ dmSentAt: null, publicReplySentAt: null }, platform)).toBe(
+        "PUBLIC_REPLY"
+      );
+    }
   });
 });
 

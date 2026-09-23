@@ -173,7 +173,7 @@ export default function ActivityPage() {
                     </td>
                     <td className="px-4 py-4 sm:px-6">
                       <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted">
-                        {ACTION_LABELS[runAction(run)]}
+                        {ACTION_LABELS[runAction(run, run.connectedAccount.platform)]}
                       </span>
                     </td>
                     <td className="px-4 py-4 sm:px-6">

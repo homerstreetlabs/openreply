@@ -136,7 +136,7 @@ export default function DashboardPage() {
                       run.connectedAccount.platform,
                       run.connectedAccount.username
                     )}
-                    {runAction(run) === "PUBLIC_REPLY" ? " · public reply" : " · DM"} ·{" "}
+                    {runAction(run, run.connectedAccount.platform) === "PUBLIC_REPLY" ? " · public reply" : " · DM"} ·{" "}
                     {run.triggerText}
                   </p>
                 </div>

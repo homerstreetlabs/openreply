@@ -12,7 +12,8 @@
  * kept in step with the timestamps that already answer the question.
  */
 
-import type { DmStatus } from "@/app/generated/prisma/client";
+import type { DmStatus, Platform } from "@/app/generated/prisma/client";
+import { campaignOptions } from "@/lib/campaigns/options";
 
 /** Which channel the run used. */
 export type RunAction = "DIRECT_MESSAGE" | "PUBLIC_REPLY";
@@ -31,14 +32,13 @@ export interface RunTimestamps {
  * A campaign can post a public reply *and* open a DM, and the DM is the outcome
  * the creator cares about — the public reply is the nudge that carries someone
  * to it. A run that only ever replied publicly is a public reply. A run that
- * has sent nothing yet is attributed by what it was going to do, which is why
- * the unsent case falls through to DIRECT_MESSAGE only when no public reply
- * exists to claim it.
+ * has sent nothing yet is attributed by what it was going to do, which on a
+ * platform with no DM can only be a public reply.
  */
-export function runAction(run: RunTimestamps): RunAction {
+export function runAction(run: RunTimestamps, platform: Platform): RunAction {
   if (run.dmSentAt) return "DIRECT_MESSAGE";
   if (run.publicReplySentAt) return "PUBLIC_REPLY";
-  return "DIRECT_MESSAGE";
+  return campaignOptions(platform).dm ? "DIRECT_MESSAGE" : "PUBLIC_REPLY";
 }
 
 export function runOutcome(status: DmStatus): RunOutcome {
