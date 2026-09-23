@@ -360,26 +360,31 @@ export const tiktokAdapter: PlatformAdapter = {
         throw new Error("TikTok returned no access token");
       }
 
-      const profile = await call<{
-        core_info?: { username?: string; display_name?: string; region?: string };
-      }>(
-        `/business/get/?business_id=${encodeURIComponent(token.open_id)}&fields=["username","display_name","region"]`,
+      const params = new URLSearchParams({
+        business_id: token.open_id,
+        fields: JSON.stringify(["username", "display_name"]),
+      });
+      const profile = await call<{ username?: string; display_name?: string }>(
+        `/business/get/?${params.toString()}`,
         token.access_token
-      ).catch(() => null);
+      ).catch((error: unknown) => {
+        console.warn("[TikTok] Could not read the connected profile:", error);
+        return null;
+      });
 
       return [
         {
           // `open_id` is the account's own id and every Business API call passes
           // it as `business_id`, which is why it is the external id here.
           externalId: token.open_id,
-          username: profile?.core_info?.username ?? token.open_id,
-          displayName: profile?.core_info?.display_name ?? null,
+          username: profile?.username ?? token.open_id,
+          displayName: profile?.display_name ?? null,
           accessToken: token.access_token,
           refreshToken: token.refresh_token ?? null,
           expiresInSeconds: token.expires_in ?? 86_400,
-          // The registration market decides whether messaging is available at
-          // all, so a missing one must not read as eligible.
-          region: profile?.core_info?.region ?? null,
+          // `/business/get/` reports no registration market, and a missing one
+          // must not read as eligible for messaging.
+          region: null,
           grantedScopes: token.scope?.split(",") ?? [...TIKTOK_SCOPES],
         },
       ];

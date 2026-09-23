@@ -207,10 +207,13 @@ describe("tiktok authorization", () => {
     expect(url.searchParams.get("redirect_uri")).toBe("https://openreply.recite.fm/api/connect/tiktok/callback/");
   });
 
-  it("exchanges the code with client_id and reads the scope string", async () => {
+  it("exchanges the code and names the account by its handle", async () => {
     const bodies: Record<string, unknown>[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
-      if (init?.body) bodies.push(JSON.parse(String(init.body)));
+      if (!init?.body) {
+        return Response.json({ code: 0, data: { username: "zeee.posing", display_name: "Zee" } });
+      }
+      bodies.push(JSON.parse(String(init.body)));
       return Response.json({
         code: 0,
         data: { access_token: "at", open_id: "oid", scope: "user.info.basic,comment.list,comment.list.manage" },
@@ -221,6 +224,8 @@ describe("tiktok authorization", () => {
 
     expect(bodies[0]).toMatchObject({ client_id: app.appId, auth_code: "code", grant_type: "authorization_code" });
     expect(account.grantedScopes).toEqual(["user.info.basic", "comment.list", "comment.list.manage"]);
+    expect(account.username).toBe("zeee.posing");
+    expect(account.displayName).toBe("Zee");
     vi.unstubAllGlobals();
   });
 });
