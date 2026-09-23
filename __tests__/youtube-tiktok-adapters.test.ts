@@ -190,3 +190,37 @@ describe("tiktok signature verification, which is unverified upstream", () => {
     expect(ok).toBe(false);
   });
 });
+
+describe("tiktok authorization", () => {
+  const app = { id: "a", slug: "default", platform: "TIKTOK", appId: "7687668839341506580", appSecret: "s" } as const;
+
+  // The advertiser flow at business-api.tiktok.com/portal/auth authorizes ad
+  // accounts, and /tt_user/oauth2/token/ refuses the code it returns.
+  it("sends the creator to the TikTok account holder flow", () => {
+    const url = new URL(
+      tiktokAdapter.oauth.authorizeUrl(app, "https://openreply.recite.fm/api/connect/tiktok/callback", "st")
+    );
+    expect(url.origin + url.pathname).toBe("https://www.tiktok.com/v2/auth/authorize");
+    expect(url.searchParams.get("client_key")).toBe(app.appId);
+    expect(url.searchParams.get("response_type")).toBe("code");
+    expect(url.searchParams.get("scope")?.split(",")).toContain("comment.list.manage");
+    expect(url.searchParams.get("redirect_uri")).toBe("https://openreply.recite.fm/api/connect/tiktok/callback/");
+  });
+
+  it("exchanges the code with client_id and reads the scope string", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.body) bodies.push(JSON.parse(String(init.body)));
+      return Response.json({
+        code: 0,
+        data: { access_token: "at", open_id: "oid", scope: "user.info.basic,comment.list,comment.list.manage" },
+      });
+    }));
+
+    const [account] = await tiktokAdapter.oauth.exchange(app, "code", "https://x.test/cb/");
+
+    expect(bodies[0]).toMatchObject({ client_id: app.appId, auth_code: "code", grant_type: "authorization_code" });
+    expect(account.grantedScopes).toEqual(["user.info.basic", "comment.list", "comment.list.manage"]);
+    vi.unstubAllGlobals();
+  });
+});

@@ -37,10 +37,18 @@ import { PLATFORM_CAPABILITIES, PLATFORM_METRICS } from "./types";
 
 const API = "https://business-api.tiktok.com/open_api/v1.3";
 
-/** Everything the shippable product needs. Messaging scopes are not among them. */
+/**
+ * The TikTok Accounts scopes the app is approved for. Profile, insights and
+ * comments each need their own. Messaging scopes are not among them.
+ */
 export const TIKTOK_SCOPES = [
   "user.info.basic",
+  "user.info.username",
+  "user.info.profile",
+  "user.info.stats",
+  "user.account.type",
   "video.list",
+  "video.insights",
   "comment.list",
   "comment.list.manage",
 ] as const;
@@ -306,18 +314,21 @@ export const tiktokAdapter: PlatformAdapter = {
    * recover from, so that failure has to surface rather than be retried.
    */
   /**
-   * ⚠️ Unverified against a live app. Written from TikTok's documented endpoints
-   * so it is ready when registration and the Accounts API form come through.
+   * The TikTok account holder flow, not the advertiser one at
+   * `business-api.tiktok.com/portal/auth`, which authorizes ad accounts and
+   * returns a code `/tt_user/oauth2/token/` does not accept.
    *
    * Two details bite. `disable_auto_auth=1` is required or a returning user is
-   * silently redirected back with no `auth_code` at all. And redirect URLs must
-   * end with a trailing slash, with no query, no anchor and no port, which is
-   * why the caller's URI is normalised here rather than trusted.
+   * silently redirected back with no code at all. And redirect URLs must end
+   * with a trailing slash, with no query, no anchor and no port, which is why
+   * the caller's URI is normalised here rather than trusted.
    */
   oauth: {
     authorizeUrl(app, redirectUri, state) {
-      const url = new URL("https://business-api.tiktok.com/portal/auth");
-      url.searchParams.set("app_id", app.appId);
+      const url = new URL("https://www.tiktok.com/v2/auth/authorize");
+      url.searchParams.set("client_key", app.appId);
+      url.searchParams.set("scope", TIKTOK_SCOPES.join(","));
+      url.searchParams.set("response_type", "code");
       url.searchParams.set("redirect_uri", withTrailingSlash(redirectUri));
       url.searchParams.set("state", state);
       // Without this a returning user is redirected with no auth_code.
@@ -331,12 +342,13 @@ export const tiktokAdapter: PlatformAdapter = {
         refresh_token?: string;
         expires_in?: number;
         open_id?: string;
-        scope?: string[];
+        /** Comma-separated. */
+        scope?: string;
       }>("/tt_user/oauth2/token/", "", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          client_key: app.appId,
+          client_id: app.appId,
           client_secret: app.appSecret,
           auth_code: code,
           grant_type: "authorization_code",
@@ -368,7 +380,7 @@ export const tiktokAdapter: PlatformAdapter = {
           // The registration market decides whether messaging is available at
           // all, so a missing one must not read as eligible.
           region: profile?.core_info?.region ?? null,
-          grantedScopes: token.scope ?? [...TIKTOK_SCOPES],
+          grantedScopes: token.scope?.split(",") ?? [...TIKTOK_SCOPES],
         },
       ];
     },
@@ -389,7 +401,7 @@ export const tiktokAdapter: PlatformAdapter = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          client_key: requireEnv("TIKTOK_CLIENT_KEY"),
+          client_id: requireEnv("TIKTOK_CLIENT_KEY"),
           client_secret: requireEnv("TIKTOK_CLIENT_SECRET"),
           grant_type: "refresh_token",
           refresh_token: refreshToken,

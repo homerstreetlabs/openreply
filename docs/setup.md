@@ -520,7 +520,7 @@ There is no documented sandbox for the Business API Accounts endpoints. The sand
 
 ### Step 2: Configure OAuth
 
-Request `user.info.basic`, `video.list`, `comment.list`, and `comment.list.manage`.
+Under **Authorization > Scope of permission**, select **TikTok accounts**, with `user.info.basic`, `user.info.username`, `user.info.profile`, `user.info.stats`, `user.account.type`, `video.list`, `video.insights`, `comment.list`, and `comment.list.manage`. Register the redirect URL as the **TikTok account holder redirect URL**, not the advertiser one. The advertiser flow authorizes ad accounts, and its code is refused by `/tt_user/oauth2/token/`.
 
 Redirect URL rules are unusually strict. HTTPS only, **must end with a trailing slash**, no query parameters, no anchors, no ports, 10 to 512 characters, up to 10 per app. Register `https://openreply-web.your-subdomain.workers.dev/api/connect/tiktok/callback/`, with the trailing slash. The adapter normalises the URI it sends, so the two cannot disagree.
 
@@ -528,7 +528,7 @@ Token lifetimes: the `auth_code` lasts 10 minutes and is single use, the `access
 
 Append `&disable_auto_auth=1` to the authorize URL or returning users are silently redirected without an `auth_code`.
 
-The token response returns `open_id`. That value is what every Business API call passes as `business_id`, and it is stored on the connected account rather than in the environment, because one instance serves many creators and they do not share one. Set `TIKTOK_CLIENT_KEY` and `TIKTOK_CLIENT_SECRET` on both Workers; the Connect button appears once they are set.
+The token response returns `open_id`. That value is what every Business API call passes as `business_id`, and it is stored on the connected account rather than in the environment, because one instance serves many creators and they do not share one. Set `TIKTOK_CLIENT_KEY` to the app's **App ID** and `TIKTOK_CLIENT_SECRET` to its **Secret**, both from **My Apps > App Detail > Basic Information**, on both Workers; the Connect button appears once they are set.
 
 Tell creators to set their TikTok Business Account to accept direct messages from everyone in the TikTok app before authorising. Otherwise the owner must manually accept each message request before webhooks fire.
 
