@@ -229,3 +229,23 @@ describe("tiktok authorization", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("tiktok posts", () => {
+  it("asks for the fields the post picker shows", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      urls.push(url);
+      return Response.json({
+        code: 0,
+        data: { videos: [{ item_id: "1", caption: "hi", thumbnail_url: "https://t", share_url: "https://s", create_time: "1790200000" }] },
+      });
+    }));
+
+    const [post] = await tiktokAdapter.listPosts("at", "oid", 10);
+
+    const fields = JSON.parse(new URL(urls[0]).searchParams.get("fields") ?? "[]");
+    expect(fields).toEqual(expect.arrayContaining(["item_id", "caption", "thumbnail_url"]));
+    expect(post).toMatchObject({ id: "1", caption: "hi", thumbnailUrl: "https://t" });
+    vi.unstubAllGlobals();
+  });
+});

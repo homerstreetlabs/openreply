@@ -499,9 +499,11 @@ export const tiktokAdapter: PlatformAdapter = {
   },
 
   async listPosts(accessToken, businessId, limit): Promise<PostSummary[]> {
+    // Without `fields` TikTok returns only `item_id`.
     const params = new URLSearchParams({
       business_id: businessId,
       max_count: String(Math.min(limit, 20)),
+      fields: JSON.stringify(["item_id", "caption", "share_url", "thumbnail_url", "create_time"]),
     });
 
     const data = await call<{
