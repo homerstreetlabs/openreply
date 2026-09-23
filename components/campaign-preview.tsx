@@ -279,7 +279,7 @@ function CommentsScreen({
                 <span className="font-semibold">{username}</span>{" "}
                 <span className="text-zinc-500">Now</span>
               </p>
-              <p className="text-sm">{publicReplyMessage || "Sent you a DM! 📩"}</p>
+              <p className="text-sm">{publicReplyMessage}</p>
               <p className="mt-0.5 text-xs text-zinc-500">Reply</p>
             </div>
             <span className="mt-1">{Ico.heart("h-3.5 w-3.5 text-zinc-500")}</span>

@@ -19,6 +19,8 @@ export interface CampaignOptions {
   readonly publicReplyRequired: boolean;
   /** Triggering on an inbound DM, which needs somewhere to receive one. */
   readonly dmTrigger: boolean;
+  /** Sample public reply, which can only point at a DM where one is sent. */
+  readonly publicReplyExample: string;
 }
 
 export function campaignOptions(platform: Platform): CampaignOptions {
@@ -32,6 +34,7 @@ export function campaignOptions(platform: Platform): CampaignOptions {
     // sends nothing at all, so the choice is not offered.
     publicReplyRequired: publicReply && !dm,
     dmTrigger: dm,
+    publicReplyExample: dm ? "Sent you a DM! 📩" : "Thanks for asking! 🙌",
   };
 }
 

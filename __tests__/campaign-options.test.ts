@@ -36,6 +36,13 @@ describe("campaign options", () => {
     expect(campaignOptions("YOUTUBE").dmTrigger).toBe(false);
   });
 
+  it("never suggests a public reply that promises a DM the platform cannot send", () => {
+    for (const platform of ALL) {
+      const o = campaignOptions(platform);
+      if (!o.dm) expect(o.publicReplyExample).not.toMatch(/DM/);
+    }
+  });
+
   /** Every platform must be able to send something, or it cannot run a campaign. */
   it("leaves no platform with nothing to send", () => {
     for (const platform of ALL) {
