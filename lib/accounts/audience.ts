@@ -72,8 +72,9 @@ export async function combinedAudience(
         noun: audience.noun,
         value: audience.current,
       } satisfies AudienceSlice;
-    } catch {
+    } catch (error) {
       // One platform refusing must not cost the other three their numbers.
+      console.warn(`[audience] ${row.platform} ${row.id} did not report:`, error);
       return {
         accountId: row.id,
         platform: row.platform,
