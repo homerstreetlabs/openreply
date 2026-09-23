@@ -111,15 +111,11 @@ export default function ImportCampaignsPage() {
 
       {accounts.length > 1 && (
         <div className="space-y-2">
-          <label className="block text-sm font-medium text-foreground">
-            Instagram account
-          </label>
           <AccountSelect
             accounts={accounts}
             value={selectedAccountId}
             onChange={setSelectedAccountId}
             includeAll={false}
-            label="Account"
           />
         </div>
       )}

@@ -685,7 +685,6 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                   setPostThumb(null);
                 }}
                 includeAll={false}
-                label="Instagram account"
               />
             </div>
           )}

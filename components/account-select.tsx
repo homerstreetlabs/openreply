@@ -1,6 +1,7 @@
 "use client";
 
 import type { Platform } from "@/app/generated/prisma/client";
+import { platformName } from "@/lib/campaigns/options";
 
 /**
  * What a picker needs to name an account. Structurally the directory's
@@ -45,7 +46,7 @@ export default function AccountSelect({
         {includeAll && <option value="all">All accounts</option>}
         {accounts.map((account) => (
           <option key={account.id} value={account.id}>
-            {account.label}
+            {account.label} · {platformName(account.platform)}
           </option>
         ))}
       </select>
