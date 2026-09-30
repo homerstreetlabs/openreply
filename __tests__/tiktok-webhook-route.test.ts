@@ -54,7 +54,8 @@ function commentExists(text = "where can I buy this") {
 }
 
 function sign(body: string): string {
-  return createHmac("sha256", SECRET).update(body).digest("hex");
+  const t = Math.floor(Date.now() / 1000);
+  return `t=${t},s=${createHmac("sha256", SECRET).update(`${t}.${body}`).digest("hex")}`;
 }
 
 function commentBody(overrides: Record<string, unknown> = {}): string {

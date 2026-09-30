@@ -534,12 +534,12 @@ Tell creators to set their TikTok Business Account to accept direct messages fro
 
 ### Step 3: Configure the webhook, and set the secret
 
-Register the callback with `POST /business/webhook/update/`, `event_type: "COMMENT"`, your `callback_url`, and a `secret`. The config endpoints need no permission.
+Register the callback with `POST /business/webhook/update/`, passing `app_id`, `secret` (the app secret), `event_type: "COMMENT"`, and your `callback_url`. The config endpoints need no permission.
 
 - Callback URL: `https://openreply-web.your-subdomain.workers.dev/api/webhook/tiktok`
-- Set the same secret as `TIKTOK_WEBHOOK_SECRET` in both Workers.
+- Set the app secret as `TIKTOK_WEBHOOK_SECRET` on the web Worker.
 
-**The route rejects every delivery until that secret is set, and this is deliberate.** TikTok's webhook config accepts a secret, but the signing algorithm, header name, and signed byte range are not documented anywhere. The adapter fails closed rather than accepting unverified bodies, because an ingestion endpoint that triggers outbound activity on a creator's account is the highest-severity thing in this system to leave unauthenticated. Confirm the scheme against a real delivery before trusting it.
+**The route rejects every delivery until that secret is set.** TikTok signs each delivery with a `Tiktok-Signature: t=<unix seconds>,s=<hex>` header, where `s` is HMAC-SHA256 of `"<t>.<raw body>"` keyed with the app secret ([Webhook verification](https://developers.tiktok.com/doc/webhooks-verification)). That page documents TikTok's developer platform, and the Business API is assumed to sign the same way, so the route also re-reads each comment from TikTok before acting on it.
 
 `comment.update` fires *"within five minutes of a comment or reply being created, deleted, or … visibility settings … modified"*, for posts published through the API and manually in the app. It requires the account to have granted `comment.list`.
 

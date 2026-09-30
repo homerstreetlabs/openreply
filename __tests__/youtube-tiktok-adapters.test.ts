@@ -191,6 +191,30 @@ describe("tiktok signature verification, which is unverified upstream", () => {
   });
 });
 
+describe("tiktok signature, as TikTok documents it", () => {
+  const verify = (body: string, sig: string | null) =>
+    tiktokAdapter.discovery.kind === "webhook" && tiktokAdapter.discovery.verifySignature(body, sig);
+  const header = (t: number, body: string, key = "tt_secret") =>
+    `t=${t},s=${createHmac("sha256", key).update(`${t}.${body}`).digest("hex")}`;
+
+  beforeEach(() => vi.stubEnv("TIKTOK_WEBHOOK_SECRET", "tt_secret"));
+
+  it("accepts a fresh delivery signed over timestamp and body", () => {
+    const now = Math.floor(Date.now() / 1000);
+    expect(verify('{"event":"comment.update"}', header(now, '{"event":"comment.update"}'))).toBe(true);
+  });
+
+  it("refuses a signature over the body alone", () => {
+    const body = "{}";
+    expect(verify(body, createHmac("sha256", "tt_secret").update(body).digest("hex"))).toBe(false);
+  });
+
+  it("refuses a replay older than the window", () => {
+    const stale = Math.floor(Date.now() / 1000) - 3600;
+    expect(verify("{}", header(stale, "{}"))).toBe(false);
+  });
+});
+
 describe("tiktok authorization", () => {
   const app = { id: "a", slug: "default", platform: "TIKTOK", appId: "7687668839341506580", appSecret: "s" } as const;
 

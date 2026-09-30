@@ -16,10 +16,8 @@ export const runtime = "nodejs";
  * nothing back.
  *
  * The adapter's signature check fails closed while `TIKTOK_WEBHOOK_SECRET` is
- * unset, because TikTok does not document the signing scheme. That means this
- * route rejects everything until the secret is configured and the scheme is
- * confirmed against a real delivery. Accepting unverified bodies to make the
- * route look finished would let anyone enqueue sends on any connected account.
+ * unset. Accepting unverified bodies would let anyone enqueue sends on any
+ * connected account.
  */
 
 /**
@@ -90,16 +88,11 @@ export async function POST(request: NextRequest) {
 
   const events = discovery.parseEvents(payload);
 
-  // Defence in depth, and not belt-and-braces. TikTok documents no signing
-  // scheme, so the check above is an educated guess at an algorithm nobody has
-  // confirmed. Re-reading the comment from TikTok's own API before acting means
-  // a forged payload that somehow passed the signature still cannot make a
-  // creator's account post anything: the comment either exists with that text
-  // or the event is dropped.
-  //
-  // The webhook carries `text`, so this costs a call we would not otherwise
-  // make. That is the price of acting on an unverified signature, and it comes
-  // off once the scheme is confirmed against a real delivery.
+  // Defence in depth. The signing scheme is documented for TikTok's developer
+  // platform and assumed for the Business API, so re-reading the comment from
+  // TikTok's own API before acting means a forged payload that somehow passed
+  // the signature still cannot make a creator's account post anything. It
+  // comes off once a real Business API delivery has verified.
   const confirmed = await confirmAgainstApi(events);
 
   for (const event of confirmed) {

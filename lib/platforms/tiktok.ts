@@ -116,27 +116,38 @@ async function call<T>(
   return data.data as T;
 }
 
+/** Replay window for a signed delivery. TikTok names none, so this is ours. */
+const WEBHOOK_TOLERANCE_SECONDS = 300;
+
 const discovery: Discovery = {
   kind: "webhook",
 
   /**
-   * ⚠️ Unverified. TikTok's webhook configuration accepts a `secret`, but the
-   * signing algorithm, header name, and signed byte range are not documented
-   * anywhere I could find.
-   *
-   * Refusing every payload until the scheme is confirmed is the only safe
-   * default. An ingestion endpoint that triggers outbound activity on a
-   * creator's account is the highest-severity thing in this system to leave
-   * unauthenticated, so this fails closed and the route stays disabled by
-   * configuration until a spike resolves it.
+   * `Tiktok-Signature: t=<unix seconds>,s=<hex>`, where `s` is HMAC-SHA256 of
+   * `"<t>.<raw body>"`. Documented at developers.tiktok.com/doc/webhooks-verification
+   * for TikTok's developer platform; the Business API is assumed to sign the
+   * same way, which is why the route still re-reads each comment before acting.
+   * `TIKTOK_WEBHOOK_SECRET` holds the key, the app secret, and the check fails
+   * closed while it is unset.
    */
   verifySignature(rawBody: string, signature: string | null): boolean {
     const secret = process.env.TIKTOK_WEBHOOK_SECRET;
     if (!secret || !signature) return false;
 
-    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+    const parts = new Map(
+      signature.split(",").map((pair) => {
+        const at = pair.indexOf("=");
+        return [pair.slice(0, at).trim(), pair.slice(at + 1).trim()] as const;
+      })
+    );
+    const t = parts.get("t");
+    const s = parts.get("s");
+    if (!t || !s) return false;
+    if (Math.abs(Date.now() / 1000 - Number(t)) > WEBHOOK_TOLERANCE_SECONDS) return false;
+
+    const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
     try {
-      return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+      return timingSafeEqual(Buffer.from(s), Buffer.from(expected));
     } catch {
       return false;
     }
