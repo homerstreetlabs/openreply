@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
-import { campaignOptions } from "@/lib/campaigns/options";
+import { accountLabel, campaignOptions, platformName } from "@/lib/campaigns/options";
 import type { Platform } from "@/app/generated/prisma/client";
 
 interface Campaign {
@@ -190,6 +190,10 @@ export default function CampaignDetailPage() {
             {campaign.isActive ? "LIVE" : "Paused"}
           </span>
         </div>
+        <p className="-mt-4 text-sm text-muted">
+          {accountLabel(campaign.connectedAccount.platform, campaign.connectedAccount.username)} ·{" "}
+          {platformName(campaign.connectedAccount.platform)}
+        </p>
 
         <Summary title="When someone comments on">
           <div className="flex items-center gap-3">
@@ -205,7 +209,19 @@ export default function CampaignDetailPage() {
                 {campaign.matchAnyPost || campaign.pendingNextReel ? "Any" : "Post"}
               </div>
             )}
-            <span className="text-sm text-foreground">{trigger}</span>
+            <div className="min-w-0">
+              <p className="text-sm text-foreground">{trigger}</p>
+              {campaign.postUrl && !campaign.matchAnyPost && !campaign.pendingNextReel && (
+                <a
+                  href={campaign.postUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-accent hover:underline"
+                >
+                  Open post on {platformName(campaign.connectedAccount.platform)} &#8599;
+                </a>
+              )}
+            </div>
           </div>
         </Summary>
 
