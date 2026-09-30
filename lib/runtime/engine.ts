@@ -155,17 +155,24 @@ async function recordOutcome(
   const status =
     result.kind === "done" ? "SENT" : result.kind === "abandon" ? "SKIPPED_DEDUP" : "FAILED";
 
+  const data = {
+    kind,
+    status,
+    externalId: result.kind === "done" ? (result.externalId ?? null) : null,
+    error: outcomeNote(result),
+  } as const;
+
+  // A retry of a failed step owns that step's row. Without this the insert
+  // below collides with the old failure and the retry reads as a lost race,
+  // which moves the run past a step that never succeeded and marks it sent.
+  const retried = await prisma.stepOutcome.updateMany({
+    where: { runId, stepIndex, status: "FAILED" },
+    data,
+  });
+  if (retried.count === 1) return true;
+
   try {
-    await prisma.stepOutcome.create({
-      data: {
-        runId,
-        stepIndex,
-        kind,
-        status,
-        externalId: result.kind === "done" ? (result.externalId ?? null) : null,
-        error: outcomeNote(result),
-      },
-    });
+    await prisma.stepOutcome.create({ data: { runId, stepIndex, ...data } });
     return true;
   } catch {
     // Lost the race. Another consumer recorded this step, which means it also

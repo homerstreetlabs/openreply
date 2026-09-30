@@ -17,7 +17,7 @@ const { mockPrisma } = vi.hoisted(() => ({
       findMany: vi.fn(),
       upsert: vi.fn(),
     },
-    stepOutcome: { findMany: vi.fn(), create: vi.fn() },
+    stepOutcome: { findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
   },
 }));
 
@@ -69,6 +69,7 @@ beforeEach(() => {
   mockPrisma.responseRun.update.mockResolvedValue({});
   mockPrisma.stepOutcome.findMany.mockResolvedValue([]);
   mockPrisma.stepOutcome.create.mockResolvedValue({});
+  mockPrisma.stepOutcome.updateMany.mockResolvedValue({ count: 0 });
 });
 
 describe("leasing", () => {
@@ -276,6 +277,22 @@ describe("failure", () => {
     const finished = lastArg(mockPrisma.responseRun.update, "run update").data;
     expect(finished.status).toBe("FAILED");
     expect(finished.errorMessage).toBe("token expired");
+  });
+
+  it("keeps a run failed when a retry of the failed step fails again", async () => {
+    mockPrisma.stepOutcome.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.stepOutcome.create.mockRejectedValue(new Error("unique constraint"));
+    const execute = vi.fn(async (): Promise<StepResult> => ({
+      kind: "failed",
+      error: "video_id missing",
+      retryable: true,
+    }));
+
+    await advanceRun("run_1", { kind: "trigger" }, plan, execute, "INSTAGRAM");
+
+    const finished = lastArg(mockPrisma.responseRun.update, "run update").data;
+    expect(finished.status).toBe("FAILED");
+    expect(finished.errorMessage).toBe("video_id missing");
   });
 
   it("releases the lease even when a step throws", async () => {
