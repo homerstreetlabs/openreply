@@ -146,6 +146,7 @@ export default function CampaignDetailPage() {
       : campaign.publicReplyMessage
         ? [campaign.publicReplyMessage]
         : [];
+  const canSendDm = campaignOptions(campaign.connectedAccount.platform).dm;
   const hasLink = Boolean(campaign.trackedLinks?.[0]?.destinationUrl);
   const hasSecondLink = Boolean(campaign.trackedLinks?.[1]?.destinationUrl);
 
@@ -245,17 +246,19 @@ export default function CampaignDetailPage() {
           </Summary>
         )}
 
-        <Summary title="And then, they will get a DM">
-          <FieldBox>{campaign.dmMessage}</FieldBox>
-          {hasLink && (
-            <FieldBox>{campaign.linkButtonLabel || "Open link"}</FieldBox>
-          )}
-          {hasSecondLink && (
-            <FieldBox>
-              {campaign.trackedLinks?.[1]?.label || "Open link"}
-            </FieldBox>
-          )}
-        </Summary>
+        {canSendDm && (
+          <Summary title="And then, they will get a DM">
+            <FieldBox>{campaign.dmMessage}</FieldBox>
+            {hasLink && (
+              <FieldBox>{campaign.linkButtonLabel || "Open link"}</FieldBox>
+            )}
+            {hasSecondLink && (
+              <FieldBox>
+                {campaign.trackedLinks?.[1]?.label || "Open link"}
+              </FieldBox>
+            )}
+          </Summary>
+        )}
 
         {hasLink && (
           <Summary title="The exact link sent">
@@ -339,7 +342,7 @@ export default function CampaignDetailPage() {
           <CampaignPreview
             tab={previewTab}
             onTabChange={setPreviewTab}
-            canSendDm={campaignOptions(campaign.connectedAccount.platform).dm}
+            canSendDm={canSendDm}
             username={campaign.connectedAccount.username}
             avatarUrl={avatarUrl}
             postThumb={postThumb}
