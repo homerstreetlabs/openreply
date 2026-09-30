@@ -12,6 +12,8 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
+import { campaignOptions } from "@/lib/campaigns/options";
+import type { Platform } from "@/app/generated/prisma/client";
 
 interface Campaign {
   id: string;
@@ -39,7 +41,7 @@ interface Campaign {
   publicReplyMessages: string[];
   isActive: boolean;
   accountId: string;
-  instagramAccount: { username: string };
+  connectedAccount: { username: string; platform: Platform };
   trackedLinks?: {
     destinationUrl: string;
     label?: string | null;
@@ -337,7 +339,8 @@ export default function CampaignDetailPage() {
           <CampaignPreview
             tab={previewTab}
             onTabChange={setPreviewTab}
-            username={campaign.instagramAccount.username}
+            canSendDm={campaignOptions(campaign.connectedAccount.platform).dm}
+            username={campaign.connectedAccount.username}
             avatarUrl={avatarUrl}
             postThumb={postThumb}
             caption=""

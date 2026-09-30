@@ -1028,13 +1028,14 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
           <CampaignPreview
             tab={previewTab}
             onTabChange={setPreviewTab}
+            canSendDm={canSendDm}
             username={username}
             avatarUrl={avatarUrl}
             postThumb={postThumb}
             caption={postCaption}
             sampleComment={keywords[0] ?? ""}
             dmTriggerEnabled={dmTriggerEnabled}
-            publicReplyEnabled={publicReplyEnabled}
+            publicReplyEnabled={publicReplyOn}
             publicReplyMessage={publicReplyMessages.find((m) => m.trim()) ?? options.publicReplyExample}
             openingDmEnabled={openingDmEnabled}
             openingDmMessage={openingDmMessage}

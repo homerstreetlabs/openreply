@@ -15,6 +15,8 @@ export type PreviewTab = "post" | "comments" | "dm" | "dmTrigger";
 interface CampaignPreviewProps {
   tab: PreviewTab;
   onTabChange: (tab: PreviewTab) => void;
+  /** False on platforms with no messaging API, which get no DM screens at all. */
+  canSendDm: boolean;
   username: string;
   avatarUrl: string | null;
   postThumb: string | null;
@@ -478,16 +480,19 @@ export default function CampaignPreview(props: CampaignPreviewProps) {
   const tabs: { key: PreviewTab; label: string }[] = [
     { key: "post", label: "Post" },
     { key: "comments", label: "Comments" },
-    { key: "dm", label: "DM" },
-    ...(props.dmTriggerEnabled
+    ...(props.canSendDm ? [{ key: "dm" as const, label: "DM" }] : []),
+    ...(props.canSendDm && props.dmTriggerEnabled
       ? [{ key: "dmTrigger" as const, label: "DM trigger" }]
       : []),
   ];
 
-  // The DM-trigger tab disappears when the trigger is switched off; fall back
-  // to the comment thread rather than rendering an empty phone.
-  const activeTab: PreviewTab =
-    tab === "dmTrigger" && !props.dmTriggerEnabled ? "dm" : tab;
+  // A tab can disappear under the viewer when the trigger is switched off or
+  // the account changes platform; fall back rather than render an empty phone.
+  const activeTab: PreviewTab = tabs.some((t) => t.key === tab)
+    ? tab
+    : props.canSendDm
+      ? "dm"
+      : "comments";
 
   return (
     <div className="flex flex-col items-center gap-5">
