@@ -444,6 +444,7 @@ async function processComment(job: JobLike<ProcessCommentJob>): Promise<void> {
             accessToken,
             instagramAccountId,
             commentId,
+            mediaId,
             publicReply
           );
         } catch (error) {

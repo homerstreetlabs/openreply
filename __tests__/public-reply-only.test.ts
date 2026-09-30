@@ -122,6 +122,7 @@ describe("a comment on a platform that cannot message", () => {
       "plaintext",
       "channel_1",
       "c_1",
+      "video_1",
       "sent it your way, check the pinned comment"
     );
   });

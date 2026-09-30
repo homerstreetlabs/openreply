@@ -431,7 +431,8 @@ export const tiktokAdapter: PlatformAdapter = {
    * shadow-hidden. Reply copy should vary; the campaign's variant pool is what
    * provides that.
    */
-  async postPublicReply(accessToken, accountExternalId, commentId, message) {
+  async postPublicReply(accessToken, accountExternalId, commentId, postId, message) {
+    if (!postId) throw new Error("TikTok cannot reply without the comment's video id");
     const data = await call<{ comment_id?: string }>(
       "/business/comment/reply/create/",
       accessToken,
@@ -440,6 +441,7 @@ export const tiktokAdapter: PlatformAdapter = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           business_id: accountExternalId,
+          video_id: postId,
           comment_id: commentId,
           // 1,200 UTF-8 characters is the documented ceiling.
           text: message.slice(0, 1200),

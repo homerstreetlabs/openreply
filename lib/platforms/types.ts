@@ -686,6 +686,8 @@ export interface PlatformAdapter {
     accessToken: string,
     accountExternalId: string,
     commentId: string,
+    /** The post the comment sits under. TikTok will not reply without it. */
+    postId: string | null,
     message: string
   ): Promise<{ id: string }>;
 

@@ -249,3 +249,22 @@ describe("tiktok posts", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("tiktok public reply", () => {
+  it("names the video the comment sits under", async () => {
+    let body: Record<string, unknown> = {};
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return Response.json({ code: 0, data: { comment_id: "r1" } });
+    }));
+
+    await tiktokAdapter.postPublicReply("at", "oid", "c1", "v1", "thanks");
+
+    expect(body).toMatchObject({ business_id: "oid", video_id: "v1", comment_id: "c1", text: "thanks" });
+    vi.unstubAllGlobals();
+  });
+
+  it("refuses to reply without a video id rather than sending a request TikTok rejects", async () => {
+    await expect(tiktokAdapter.postPublicReply("at", "oid", "c1", null, "thanks")).rejects.toThrow("video id");
+  });
+});

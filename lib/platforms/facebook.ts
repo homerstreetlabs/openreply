@@ -594,7 +594,7 @@ export const facebookAdapter: PlatformAdapter = {
   tokens: { kind: "permanent" } as const,
   messaging,
 
-  async postPublicReply(accessToken, accountExternalId, commentId, message) {
+  async postPublicReply(accessToken, accountExternalId, commentId, _postId, message) {
     const response = await fetch(`${graphBase()}/${commentId}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

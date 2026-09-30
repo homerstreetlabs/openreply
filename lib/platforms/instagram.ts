@@ -454,7 +454,7 @@ export const instagramAdapter: PlatformAdapter = {
   } as const,
   messaging,
 
-  async postPublicReply(accessToken, accountExternalId, commentId, message) {
+  async postPublicReply(accessToken, accountExternalId, commentId, _postId, message) {
     return sendCommentReply(accessToken, commentId, message);
   },
 

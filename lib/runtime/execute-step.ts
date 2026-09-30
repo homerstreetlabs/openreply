@@ -195,6 +195,7 @@ async function send(
         target.accessToken,
         target.accountExternalId,
         target.triggerKey,
+        target.postId,
         render(chosen, target)
       );
       return result.id;

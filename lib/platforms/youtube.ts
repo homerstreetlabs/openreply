@@ -372,7 +372,7 @@ export const youtubeAdapter: PlatformAdapter = {
    *
    * Costs 50 quota units, which is 50 times a poll.
    */
-  async postPublicReply(accessToken, accountExternalId, commentId, message) {
+  async postPublicReply(accessToken, accountExternalId, commentId, _postId, message) {
     const url = new URL(`${API}/comments`);
     url.searchParams.set("part", "snippet");
 
