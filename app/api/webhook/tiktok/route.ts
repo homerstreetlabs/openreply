@@ -40,7 +40,10 @@ async function confirmAgainstApi(
       },
       select: { accessToken: true },
     });
-    if (!account) continue;
+    if (!account) {
+      console.warn(`[TikTok webhook] Dropped ${event.commentId}: no connected account ${event.accountExternalId}`);
+      continue;
+    }
 
     try {
       const token = decryptToken(account.accessToken);
@@ -49,7 +52,13 @@ async function confirmAgainstApi(
         sinceMs: 0,
       });
       const match = live.find((c) => c.id === event.commentId);
-      if (!match) continue;
+      if (!match) {
+        console.warn(
+          `[TikTok webhook] Dropped ${event.commentId}: not among ${live.length} public comments on video ${event.postId}`,
+          live.slice(0, 5).map((c) => c.id)
+        );
+        continue;
+      }
 
       // Take the text TikTok reports, not the text the payload claimed. A
       // forged body could otherwise choose which keyword it matched.
