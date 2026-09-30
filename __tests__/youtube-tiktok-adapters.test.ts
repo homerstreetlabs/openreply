@@ -104,15 +104,18 @@ describe("tiktok comment webhook", () => {
     });
   });
 
-  /** Ids arrive as numbers and would lose precision if left as JS numbers. */
+  /** Ids arrive as bare numbers past 2^53, which JSON.parse would round. */
   it("keeps large ids exact by carrying them as strings", () => {
+    const content =
+      '{"comment_id":7556012345678901234,"video_id":7555987654321098765,' +
+      '"comment_type":"comment","comment_action":"insert","unique_identifier":"uid_abc","text":"LINK"}';
     const events = tiktokAdapter.discovery.kind === "webhook"
-      ? tiktokAdapter.discovery.parseEvents(envelope(insert))
+      ? tiktokAdapter.discovery.parseEvents({ event: "comment.update", user_openid: "open_1", content })
       : [];
 
     expect(events[0]).toMatchObject({
-      commentId: "7280000000000000000",
-      postId: "7270000000000000000",
+      commentId: "7556012345678901234",
+      postId: "7555987654321098765",
     });
   });
 

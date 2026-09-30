@@ -116,6 +116,15 @@ async function call<T>(
   return data.data as T;
 }
 
+/**
+ * TikTok sends comment and video ids as bare JSON numbers past 2^53, and
+ * JSON.parse rounds them into ids TikTok then rejects. Quoting them first keeps
+ * every digit.
+ */
+function quoteIds(json: string): string {
+  return json.replace(/"(comment_id|video_id|parent_comment_id)"\s*:\s*(\d+)/g, '"$1":"$2"');
+}
+
 /** Replay window for a signed delivery. TikTok names none, so this is ours. */
 const WEBHOOK_TOLERANCE_SECONDS = 300;
 
@@ -167,7 +176,7 @@ const discovery: Discovery = {
       // SAFETY: every field is optional and each one is re-checked below before
       // use, so a payload of the wrong shape yields no events rather than bad
       // ones. A string that is not JSON throws into the catch.
-      content = JSON.parse(envelope.content) as CommentUpdateContent;
+      content = JSON.parse(quoteIds(envelope.content)) as CommentUpdateContent;
     } catch {
       return [];
     }
