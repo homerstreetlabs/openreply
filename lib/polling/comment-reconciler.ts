@@ -187,6 +187,8 @@ async function sweepCampaign(
       continue;
     }
 
+    await backfillCommenterNames(automation.id, comments);
+
     // Keep only comments that (a) aren't the account's own, (b) match the
     // keyword, and (c) have no reply from the account owner yet.
     //
@@ -280,4 +282,33 @@ async function recordSweep(
       },
     })
     .catch(() => {});
+}
+
+/**
+ * Name the people behind runs that started without a name.
+ *
+ * TikTok's comment webhook identifies the commenter by an opaque id alone, and
+ * the comment list that carries their display name lags the webhook, so a run
+ * the webhook starts is saved unnamed. This sweep lists those comments anyway,
+ * which makes it the first place the name is known.
+ */
+export async function backfillCommenterNames(
+  campaignId: string,
+  comments: readonly DiscoveredComment[]
+): Promise<void> {
+  const names = new Map(
+    comments.flatMap((c) => (c.authorName ? [[c.id, c.authorName] as const] : []))
+  );
+  if (names.size === 0) return;
+
+  const unnamed = await prisma.responseRun.findMany({
+    where: { campaignId, triggerKey: { in: [...names.keys()] }, counterpartyName: null },
+    select: { id: true, triggerKey: true },
+  });
+  for (const run of unnamed) {
+    await prisma.responseRun.update({
+      where: { id: run.id },
+      data: { counterpartyName: names.get(run.triggerKey) },
+    });
+  }
 }

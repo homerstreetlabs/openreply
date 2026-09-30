@@ -40,7 +40,7 @@ interface Campaign {
   publicReplyMessage: string | null;
   publicReplyMessages: string[];
   isActive: boolean;
-  accountId: string;
+  connectedAccountId: string;
   connectedAccount: { username: string; platform: Platform };
   trackedLinks?: {
     destinationUrl: string;
@@ -86,7 +86,7 @@ export default function CampaignDetailPage() {
 
   useEffect(() => {
     if (!campaign) return;
-    const acct = campaign.accountId;
+    const acct = campaign.connectedAccountId;
     fetch(`/api/instagram/profile?accountId=${acct}`)
       .then((r) => r.json())
       .then((d) =>

@@ -53,7 +53,7 @@ interface LoadedCampaign {
   publicReplyMessage: string | null;
   publicReplyMessages: string[];
   isActive: boolean;
-  accountId: string;
+  connectedAccountId: string;
   trackedLinks?: { destinationUrl: string; label?: string | null }[];
 }
 
@@ -268,7 +268,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         const c = (payload.data as LoadedCampaign[]).find((x) => x.id === campaignId);
         if (!c) return setNotFound(true);
         setName(c.name);
-        setSelectedAccountId(c.accountId);
+        setSelectedAccountId(c.connectedAccountId);
         setTriggerScope(
           c.matchAnyPost ? "any" : c.pendingNextReel ? "next" : "specific"
         );
@@ -324,7 +324,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         const map: Record<string, string> = {};
         for (const a of payload.data as LoadedCampaign[]) {
           if (!a.postId) continue;
-          if (a.accountId !== selectedAccountId) continue;
+          if (a.connectedAccountId !== selectedAccountId) continue;
           if (mode === "edit" && a.id === campaignId) continue;
           map[a.postId] = a.name;
         }
