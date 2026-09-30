@@ -108,6 +108,11 @@ spike resolves the scheme:
 - The spike's deliverable is one sentence with a doc URL: header name, algorithm, and
   exactly what bytes are signed.
 
+**Resolved 2026-09-30.** `Tiktok-Signature: t=<ts>,s=<hex>`, HMAC-SHA256 of `"<t>.<raw body>"`
+keyed with the app secret (https://developers.tiktok.com/doc/webhooks-verification). Real
+Business API deliveries verify against it. The re-read came off because TikTok delivers the
+webhook before the comment appears in `/business/comment/list/`, so it dropped every new comment.
+
 Rationale: an unauthenticated ingestion endpoint that triggers outbound messages from a
 creator's account is the highest-severity failure mode in this system. It is worth being
 slow about.

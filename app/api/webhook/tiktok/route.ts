@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { COMMENT_JOB_NAME, enqueue } from "@/lib/queue/client";
 import { tiktokAdapter } from "@/lib/platforms/tiktok";
-import { decryptToken } from "@/lib/meta/oauth";
-import type { PlatformEvent } from "@/lib/platforms/types";
 import type { Prisma } from "@/app/generated/prisma/client";
 
 export const runtime = "nodejs";
@@ -19,57 +17,6 @@ export const runtime = "nodejs";
  * unset. Accepting unverified bodies would let anyone enqueue sends on any
  * connected account.
  */
-
-/**
- * Keep only the events TikTok's own API still reports.
- *
- * An account we do not have cannot be re-read, and an event for one is dropped
- * rather than trusted: it is exactly what a forged payload would look like.
- */
-async function confirmAgainstApi(
-  events: readonly PlatformEvent[]
-): Promise<PlatformEvent[]> {
-  const confirmed: PlatformEvent[] = [];
-
-  for (const event of events) {
-    if (event.kind !== "comment") continue;
-
-    const account = await prisma.connectedAccount.findUnique({
-      where: {
-        platform_instagramId: { platform: "TIKTOK", instagramId: event.accountExternalId },
-      },
-      select: { accessToken: true },
-    });
-    if (!account) {
-      console.warn(`[TikTok webhook] Dropped ${event.commentId}: no connected account ${event.accountExternalId}`);
-      continue;
-    }
-
-    try {
-      const token = decryptToken(account.accessToken);
-      const live = await tiktokAdapter.listRecentComments(token, event.accountExternalId, {
-        postIds: [event.postId],
-        sinceMs: 0,
-      });
-      const match = live.find((c) => c.id === event.commentId);
-      if (!match) {
-        console.warn(
-          `[TikTok webhook] Dropped ${event.commentId}: not among ${live.length} public comments on video ${event.postId}`,
-          live.slice(0, 5).map((c) => c.id)
-        );
-        continue;
-      }
-
-      // Take the text TikTok reports, not the text the payload claimed. A
-      // forged body could otherwise choose which keyword it matched.
-      confirmed.push({ ...event, commentText: match.text, commenterId: match.authorId });
-    } catch (error) {
-      console.error("[TikTok webhook] Could not confirm comment:", error);
-    }
-  }
-
-  return confirmed;
-}
 
 export async function GET() {
   return new NextResponse(null, { status: 200 });
@@ -97,18 +44,14 @@ export async function POST(request: NextRequest) {
 
   const events = discovery.parseEvents(payload);
 
-  // Defence in depth. The signing scheme is documented for TikTok's developer
-  // platform and assumed for the Business API, so re-reading the comment from
-  // TikTok's own API before acting means a forged payload that somehow passed
-  // the signature still cannot make a creator's account post anything. It
-  // comes off once a real Business API delivery has verified.
-  const confirmed = await confirmAgainstApi(events);
-
-  for (const event of confirmed) {
+  for (const event of events) {
     // TikTok cannot be sent a DM, so a comment here can only ever become a
     // public reply. The worker branches on the adapter's capability, not on the
     // platform name, so nothing needs to say that twice.
     if (event.kind !== "comment") continue;
+    // Threaded replies include the account's own replies, and acting on those
+    // lets an any-word campaign answer itself forever.
+    if (event.parentCommentId !== undefined) continue;
 
     await enqueue(
       COMMENT_JOB_NAME,

@@ -8,50 +8,11 @@ vi.mock("@/lib/queue/client", () => ({
   enqueue: (...args: unknown[]) => enqueue(...args),
 }));
 
-const findAccount = vi.fn();
-const listRecentComments = vi.fn();
-
 vi.mock("@/lib/db/client", () => ({
-  prisma: {
-    webhookEvent: { create: vi.fn().mockResolvedValue({}) },
-    connectedAccount: { findUnique: (...args: unknown[]) => findAccount(...args) },
-  },
+  prisma: { webhookEvent: { create: vi.fn().mockResolvedValue({}) } },
 }));
 
-vi.mock("@/lib/meta/oauth", () => ({ decryptToken: () => "plaintext" }));
-
-vi.mock("@/lib/platforms/tiktok", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/platforms/tiktok")>();
-  return {
-    ...actual,
-    tiktokAdapter: {
-      ...actual.tiktokAdapter,
-      listRecentComments: (...args: unknown[]) => listRecentComments(...args),
-    },
-  };
-});
-
 const SECRET = "tiktok_test_secret";
-
-/**
- * TikTok's signing scheme is undocumented, so the route re-reads the comment
- * from the API before acting. A delivery whose comment the API does not report
- * is dropped, which is what a forged payload would look like.
- */
-function commentExists(text = "where can I buy this") {
-  findAccount.mockResolvedValue({ accessToken: "encrypted" });
-  listRecentComments.mockResolvedValue([
-    {
-      id: "7300000000000000001",
-      postId: "7200000000000000002",
-      text,
-      authorId: "commenter_uid",
-      authorName: "A Commenter",
-      createdAtMs: null,
-      ownerHasReplied: false,
-    },
-  ]);
-}
 
 function sign(body: string): string {
   const t = Math.floor(Date.now() / 1000);
@@ -90,7 +51,6 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe("tiktok webhook route", () => {
   it("enqueues a comment for a correctly signed delivery", async () => {
-    commentExists();
     const body = commentBody();
     const response = await post(body, sign(body));
 
@@ -115,9 +75,9 @@ describe("tiktok webhook route", () => {
   });
 
   /**
-   * TikTok does not document the signing scheme, so an unconfigured secret must
-   * reject rather than wave deliveries through. Anyone who learns the URL could
-   * otherwise enqueue sends against any connected account.
+   * An unconfigured secret must reject rather than wave deliveries through.
+   * Anyone who learns the URL could otherwise enqueue sends against any
+   * connected account.
    */
   it("rejects everything while the secret is unset", async () => {
     vi.stubEnv("TIKTOK_WEBHOOK_SECRET", "");
@@ -154,39 +114,36 @@ describe("tiktok webhook route", () => {
   });
 });
 
-describe("re-reading before acting, while the signing scheme is unverified", () => {
-  it("drops a delivery whose comment the API does not report", async () => {
-    findAccount.mockResolvedValue({ accessToken: "encrypted" });
-    listRecentComments.mockResolvedValue([]);
-
-    const body = commentBody();
-    const response = await post(body, sign(body));
-
-    expect(response.status).toBe(200);
-    expect(enqueue).not.toHaveBeenCalled();
-  });
-
-  it("drops a delivery for an account this instance does not hold", async () => {
-    findAccount.mockResolvedValue(null);
-
-    const body = commentBody();
-    await post(body, sign(body));
-
-    expect(enqueue).not.toHaveBeenCalled();
-  });
-
+describe("acting on a verified delivery", () => {
   /**
-   * A forged body could otherwise choose which keyword it matched, so the text
-   * that reaches the engine is TikTok's, not the payload's.
+   * TikTok delivers the webhook before the comment appears in its comment list,
+   * so a confirming read dropped every real comment.
    */
-  it("uses the text the API reports, not the text the payload claimed", async () => {
-    commentExists("the real comment text");
-
+  it("enqueues the comment the payload carries, text included", async () => {
     const body = commentBody();
     await post(body, sign(body));
 
+    expect(enqueue).toHaveBeenCalledTimes(1);
     expect(enqueue.mock.calls[0][1]).toMatchObject({
-      commentText: "the real comment text",
+      commentText: "where can I buy this",
+      mediaId: "7200000000000000002",
     });
+  });
+
+  it("ignores a threaded reply, which includes the account's own replies", async () => {
+    const body = commentBody({
+      content: JSON.stringify({
+        comment_id: "7300000000000000010",
+        parent_comment_id: "7300000000000000001",
+        comment_type: "reply",
+        comment_action: "insert",
+        video_id: "7200000000000000002",
+        text: "thanks for asking",
+        unique_identifier: "creator_uid",
+      }),
+    });
+    await post(body, sign(body));
+
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });

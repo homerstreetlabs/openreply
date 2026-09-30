@@ -539,7 +539,7 @@ Register the callback with `POST /business/webhook/update/`, passing `app_id`, `
 - Callback URL: `https://openreply-web.your-subdomain.workers.dev/api/webhook/tiktok`
 - Set the app secret as `TIKTOK_WEBHOOK_SECRET` on the web Worker.
 
-**The route rejects every delivery until that secret is set.** TikTok signs each delivery with a `Tiktok-Signature: t=<unix seconds>,s=<hex>` header, where `s` is HMAC-SHA256 of `"<t>.<raw body>"` keyed with the app secret ([Webhook verification](https://developers.tiktok.com/doc/webhooks-verification)). That page documents TikTok's developer platform, and the Business API is assumed to sign the same way, so the route also re-reads each comment from TikTok before acting on it.
+**The route rejects every delivery until that secret is set.** TikTok signs each delivery with a `Tiktok-Signature: t=<unix seconds>,s=<hex>` header, where `s` is HMAC-SHA256 of `"<t>.<raw body>"` keyed with the app secret ([Webhook verification](https://developers.tiktok.com/doc/webhooks-verification)). That page documents TikTok's developer platform, and real Business API deliveries verify the same way. The route acts on the payload directly: TikTok delivers the webhook before the comment appears in `/business/comment/list/`, so a confirming read would drop every new comment.
 
 `comment.update` fires *"within five minutes of a comment or reply being created, deleted, or … visibility settings … modified"*, for posts published through the API and manually in the app. It requires the account to have granted `comment.list`.
 

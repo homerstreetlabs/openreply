@@ -134,8 +134,8 @@ const discovery: Discovery = {
   /**
    * `Tiktok-Signature: t=<unix seconds>,s=<hex>`, where `s` is HMAC-SHA256 of
    * `"<t>.<raw body>"`. Documented at developers.tiktok.com/doc/webhooks-verification
-   * for TikTok's developer platform; the Business API is assumed to sign the
-   * same way, which is why the route still re-reads each comment before acting.
+   * for TikTok's developer platform, and real Business API deliveries verify
+   * the same way.
    * `TIKTOK_WEBHOOK_SECRET` holds the key, the app secret, and the check fails
    * closed while it is unset.
    */
