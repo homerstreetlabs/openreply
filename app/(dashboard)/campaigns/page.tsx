@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
-import { accountLabel } from "@/lib/campaigns/options";
+import { accountLabel, platformName } from "@/lib/campaigns/options";
 import type { Platform } from "@/app/generated/prisma/client";
 import { readCache, writeCache } from "@/lib/client-cache";
 
@@ -36,7 +36,7 @@ interface Campaign {
   followPromptButtonLabel: string | null;
   isActive: boolean;
   wholeWordMatch: boolean;
-  accountId: string;
+  connectedAccountId: string;
   connectedAccount: {
     username: string;
     platform: Platform;
@@ -134,7 +134,7 @@ export default function CampaignsPage() {
     if (automations.length === 0) return;
     let cancelled = false;
     const accountIds = Array.from(
-      new Set(automations.map((a) => a.accountId))
+      new Set(automations.map((a) => a.connectedAccountId))
     ).sort();
     const cacheKey = `ig-media:${accountIds.join(",")}`;
 
@@ -251,7 +251,7 @@ export default function CampaignsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: `${auto.name} copy`,
-          accountId: auto.accountId,
+          accountId: auto.connectedAccountId,
           postId: specific ? auto.postId : null,
           postUrl: specific ? auto.postUrl : null,
           matchAnyPost: auto.matchAnyPost,
@@ -449,7 +449,8 @@ export default function CampaignsPage() {
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <h3 className="text-sm font-semibold truncate">{auto.name}</h3>
                   <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted">
-                    {accountLabel(auto.connectedAccount.platform, auto.connectedAccount.username)}
+                    {accountLabel(auto.connectedAccount.platform, auto.connectedAccount.username)} ·{" "}
+                    {platformName(auto.connectedAccount.platform)}
                   </span>
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -489,8 +490,17 @@ export default function CampaignsPage() {
                   ))}
                 </div>
 
-                {/* DM preview */}
-                <p className="text-sm text-muted truncate">&ldquo;{auto.dmMessage}&rdquo;</p>
+                <p className="text-sm text-muted truncate">
+                  {auto.dmMessage.trim() ? (
+                    <>&ldquo;{auto.dmMessage}&rdquo;</>
+                  ) : (
+                    <>
+                      <span className="text-zinc-500">Public reply </span>&ldquo;
+                      {auto.publicReplyMessages.find((m) => m.trim()) ?? auto.publicReplyMessage ?? ""}
+                      &rdquo;
+                    </>
+                  )}
+                </p>
 
                 {/* Tracked link sent */}
                 {auto.trackedLinks[0]?.trackedUrl && (
