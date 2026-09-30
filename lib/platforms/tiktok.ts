@@ -46,6 +46,8 @@ export const TIKTOK_SCOPES = [
   "user.info.username",
   "user.info.profile",
   "user.info.stats",
+  // `/business/get/` refuses `followers_count` with 40130 without this.
+  "user.insights",
   "user.account.type",
   "video.list",
   "video.insights",
