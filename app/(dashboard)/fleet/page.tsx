@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { accountLabel } from "@/lib/campaigns/options";
+import type { Platform } from "@/app/generated/prisma/client";
 
 /**
  * Every connected account across every workspace, worst first.
@@ -23,11 +25,12 @@ interface FleetAccountRow {
   connectedAccountId: string;
   workspaceId: string;
   workspaceName: string;
-  platform: string;
+  platform: Platform;
   handle: string;
   status: AccountStatus;
   webhookSubscribed: boolean;
   tokenExpiresAt: string | null;
+  note: string | null;
   sent24h: number;
   failed24h: number;
   topFailures: FailureReason[];
@@ -69,14 +72,6 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
       <p className={`mt-1 text-2xl font-bold ${tone ?? "text-foreground"}`}>{value}</p>
     </div>
   );
-}
-
-function tokenNote(row: FleetAccountRow): string | null {
-  if (!row.tokenExpiresAt) return null;
-  const days = Math.round((Date.parse(row.tokenExpiresAt) - Date.now()) / 86_400_000);
-  if (days < 0) return "token expired";
-  if (days <= 7) return `token expires in ${days}d`;
-  return null;
 }
 
 export default function FleetPage() {
@@ -213,11 +208,10 @@ export default function FleetPage() {
               </thead>
               <tbody>
                 {rows.map((row) => {
-                  const note = tokenNote(row);
                   return (
                     <tr key={row.connectedAccountId} className="border-b border-border last:border-0">
                       <td className="px-4 py-3">
-                        <span className="font-medium text-foreground">@{row.handle}</span>
+                        <span className="font-medium text-foreground">{accountLabel(row.platform, row.handle)}</span>
                         <span className="ml-2 text-xs text-muted">{row.platform}</span>
                       </td>
                       <td className="px-4 py-3">
@@ -243,10 +237,7 @@ export default function FleetPage() {
                         {row.failed24h || ""}
                       </td>
                       <td className="px-4 py-3 text-xs text-muted">
-                        {row.topFailures.length === 0 && !note && !row.webhookSubscribed && (
-                          <span>not receiving webhooks</span>
-                        )}
-                        {note && <div>{note}</div>}
+                        {row.note && <div>{row.note}</div>}
                         {row.topFailures.slice(0, 2).map((f) => (
                           <div key={f.reason}>
                             {f.redacted ? "reason withheld" : f.reason}
