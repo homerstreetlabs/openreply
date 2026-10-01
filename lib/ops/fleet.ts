@@ -15,8 +15,15 @@ import { prisma } from "@/lib/db/client";
 import { readSendingLimits } from "@/lib/email/limits";
 import type { IncidentKind, IncidentSeverity, Platform } from "@/app/generated/prisma/client";
 import type { PlatformScope } from "@/lib/tenancy/platform-scope";
+import { adapterFor } from "@/lib/platforms/registry";
 
 export type AccountStatus = "HEALTHY" | "DEGRADED" | "BROKEN";
+
+export interface AccountHealth {
+  status: AccountStatus;
+  /** What is wrong with the account itself, apart from failed sends. */
+  note: string | null;
+}
 
 export interface FailureReason {
   reason: string;
@@ -26,13 +33,12 @@ export interface FailureReason {
   redacted?: boolean;
 }
 
-export interface FleetAccountRow {
+export interface FleetAccountRow extends AccountHealth {
   connectedAccountId: string;
   workspaceId: string;
   workspaceName: string;
   platform: Platform;
   handle: string;
-  status: AccountStatus;
   webhookSubscribed: boolean;
   tokenExpiresAt: Date | null;
   sent24h: number;
@@ -87,33 +93,54 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const SEVERITY_ORDER = { INFO: 0, WARNING: 1, ERROR: 2 } satisfies Record<IncidentSeverity, number>;
 
 /**
- * A token inside this window is treated as a problem rather than a curiosity.
- * The refresh cron runs daily, so anything closer than a couple of days has
- * already failed to refresh at least once.
+ * How long the refresh cron gets past the start of a token's refresh window
+ * before the account counts as degraded. It runs every five minutes, so this
+ * is three missed chances.
  */
-const TOKEN_EXPIRY_WARNING_MS = 3 * DAY_MS;
+const REFRESH_GRACE_MS = 15 * 60 * 1000;
 
-function classify(params: {
+/**
+ * Judged against what the account's platform actually needs. Only platforms
+ * that subscribe per account can be deaf for want of a subscription, and a
+ * token is a problem only once the refresh cron should already have renewed
+ * it, which is a day for TikTok and minutes for YouTube.
+ */
+export function classify(params: {
+  platform: Platform;
   failed24h: number;
   sent24h: number;
   webhookSubscribed: boolean;
   tokenExpiresAt: Date | null;
   now: number;
-}): AccountStatus {
-  const { failed24h, sent24h, webhookSubscribed, tokenExpiresAt, now } = params;
+}): AccountHealth {
+  const { platform, failed24h, sent24h, webhookSubscribed, tokenExpiresAt, now } = params;
+  const adapter = adapterFor(platform);
+  const remainingMs = tokenExpiresAt ? tokenExpiresAt.getTime() - now : null;
 
-  // Nothing can arrive without a webhook subscription, so this is broken even
-  // when no send has failed. A quiet account and a deaf one look identical from
-  // the ledger alone, which is why subscription state is checked directly.
-  if (!webhookSubscribed) return "BROKEN";
-  if (tokenExpiresAt && tokenExpiresAt.getTime() - now < 0) return "BROKEN";
-  if (failed24h > 0 && sent24h === 0) return "BROKEN";
-
-  if (tokenExpiresAt && tokenExpiresAt.getTime() - now < TOKEN_EXPIRY_WARNING_MS) {
-    return "DEGRADED";
+  // A quiet account and a deaf one look identical from the ledger alone, which
+  // is why subscription state is checked directly.
+  if (adapter.subscribeToEvents && !webhookSubscribed) {
+    return { status: "BROKEN", note: "not receiving webhooks" };
   }
-  if (failed24h > 0) return "DEGRADED";
-  return "HEALTHY";
+  if (remainingMs !== null && remainingMs < 0) return { status: "BROKEN", note: "token expired" };
+  if (failed24h > 0 && sent24h === 0) return { status: "BROKEN", note: null };
+
+  if (
+    remainingMs !== null &&
+    adapter.tokens.kind === "refreshable" &&
+    remainingMs < adapter.tokens.refreshWithinMs - REFRESH_GRACE_MS
+  ) {
+    return { status: "DEGRADED", note: `token refresh overdue, expires in ${formatRemaining(remainingMs)}` };
+  }
+  if (failed24h > 0) return { status: "DEGRADED", note: null };
+  return { status: "HEALTHY", note: null };
+}
+
+function formatRemaining(ms: number): string {
+  const hours = ms / 3_600_000;
+  if (hours >= 48) return `${Math.round(hours / 24)}d`;
+  if (hours >= 1) return `${Math.round(hours)}h`;
+  return `${Math.max(1, Math.round(ms / 60_000))}m`;
 }
 
 /**
@@ -233,7 +260,8 @@ export async function getFleetOverview(scope: PlatformScope): Promise<FleetOverv
       workspaceName: account.workspace.name,
       platform: account.platform,
       handle: account.username,
-      status: classify({
+      ...classify({
+        platform: account.platform,
         failed24h,
         sent24h,
         webhookSubscribed: account.webhookSubscribed,
