@@ -2,55 +2,11 @@
 
 import { useEffect, useState } from "react";
 import StatusBadge from "@/components/status-badge";
+import type { Diagnostics } from "@/lib/ops/diagnostics";
 
-interface DiagnosticsData {
-  queueCounts: Record<string, number>;
-  workerHealth: {
-    healthy: boolean;
-    ageMs: number | null;
-    heartbeat: {
-      checkedAt: string;
-      hostname?: string;
-      pid: number;
-      startedAt?: string;
-    } | null;
-  };
-  workerAlerts: Array<{
-    level: string;
-    message: string;
-    jobId?: string;
-    commentId?: string;
-    createdAt: string;
-  }>;
-  webhookFailures: Array<{
-    id: string;
-    object: string | null;
-    errorMessage: string | null;
-    createdAt: string;
-  }>;
-  dmFailures: Array<{
-    id: string;
-    status: string;
-    commentId: string;
-    commentText: string;
-    errorMessage: string | null;
-    updatedAt: string;
-    automation: { name: string };
-  }>;
-  tokenRefreshFailures: Array<{
-    id: string;
-    message: string;
-    createdAt: string;
-  }>;
-  operationalEvents: Array<{
-    id: string;
-    source: string;
-    level: string;
-    message: string;
-    createdAt: string;
-    resolvedAt: string | null;
-  }>;
-}
+/** The JSON the route sends: the loader's shape with every Date as a string. */
+type Wire<T> = T extends Date ? string : T extends object ? { [K in keyof T]: Wire<T[K]> } : T;
+type DiagnosticsData = Wire<Diagnostics>;
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString();
@@ -114,10 +70,17 @@ export default function DiagnosticsPage() {
     return <div className="panel rounded p-8 h-64" />;
   }
 
-  const workerAgeSeconds =
-    data?.workerHealth.ageMs == null
-      ? null
-      : Math.round(data.workerHealth.ageMs / 1000);
+  const queueTiles = [
+    { label: "Queue backlog", value: data?.workerHealth.backlog },
+    { label: "Dead-lettered", value: data?.workerHealth.deadLettered },
+    {
+      label: "Oldest message",
+      value:
+        data?.workerHealth.oldestMessageAgeMs == null
+          ? null
+          : `${Math.round(data.workerHealth.oldestMessageAgeMs / 1000)}s`,
+    },
+  ];
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -150,20 +113,12 @@ export default function DiagnosticsPage() {
           >
             {data?.workerHealth.healthy ? "Healthy" : "Needs attention"}
           </p>
-          <p className="mt-2 text-xs text-muted">
-            {workerAgeSeconds == null
-              ? "No heartbeat found"
-              : `Last heartbeat ${workerAgeSeconds}s ago`}
-          </p>
+          <p className="mt-2 text-xs text-muted">{data?.workerHealth.detail}</p>
         </div>
-        {["waiting", "active", "delayed", "failed"].map((key) => (
-          <div key={key} className="panel rounded p-4 sm:p-5">
-            <p className="text-xs font-semibold uppercase text-muted">
-              Queue {key}
-            </p>
-            <p className="mt-3 text-2xl font-bold text-foreground">
-              {data?.queueCounts[key] ?? 0}
-            </p>
+        {queueTiles.map((tile) => (
+          <div key={tile.label} className="panel rounded p-4 sm:p-5">
+            <p className="text-xs font-semibold uppercase text-muted">{tile.label}</p>
+            <p className="mt-3 text-2xl font-bold text-foreground">{tile.value ?? "n/a"}</p>
           </div>
         ))}
       </div>
@@ -204,12 +159,12 @@ export default function DiagnosticsPage() {
                 <div key={item.id} className="border-b border-border pb-3 last:border-0">
                   <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
                     <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-                      {item.automation.name}
+                      {item.campaign.name}
                     </p>
                     <StatusBadge status={item.status} />
                   </div>
                   <p className="mt-1 truncate text-xs text-muted">
-                    {item.commentText}
+                    {item.triggerText}
                   </p>
                   {item.errorMessage && (
                     <p className="mt-1 text-xs text-error">{item.errorMessage}</p>
