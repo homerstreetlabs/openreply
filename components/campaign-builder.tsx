@@ -173,10 +173,10 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [dmMessage, setDmMessage] = useState("");
   const [linkOpen, setLinkOpen] = useState(false);
   const [trackedDestinationUrl, setTrackedDestinationUrl] = useState("");
-  const [linkButtonLabel, setLinkButtonLabel] = useState("Open link");
+  const [linkButtonLabel, setLinkButtonLabel] = useState("");
   const [secondLinkOpen, setSecondLinkOpen] = useState(false);
   const [secondaryDestinationUrl, setSecondaryDestinationUrl] = useState("");
-  const [secondaryButtonLabel, setSecondaryButtonLabel] = useState("Open link");
+  const [secondaryButtonLabel, setSecondaryButtonLabel] = useState("");
   const [requireFollow, setRequireFollow] = useState(false);
   const [followPromptMessage, setFollowPromptMessage] = useState("");
   const [followPromptButtonLabel, setFollowPromptButtonLabel] =
@@ -289,14 +289,14 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         setOpeningDmMessage(c.openingDmMessage ?? "");
         setOpeningDmButtonLabel(c.openingDmButtonLabel ?? "");
         setDmMessage(c.dmMessage);
-        setLinkButtonLabel(c.linkButtonLabel ?? "Open link");
+        setLinkButtonLabel(c.linkButtonLabel ?? "");
         setIsActive(c.isActive);
         const link = c.trackedLinks?.[0]?.destinationUrl ?? "";
         setTrackedDestinationUrl(link);
         setLinkOpen(Boolean(link));
         const secondLink = c.trackedLinks?.[1];
         setSecondaryDestinationUrl(secondLink?.destinationUrl ?? "");
-        setSecondaryButtonLabel(secondLink?.label ?? "Open link");
+        setSecondaryButtonLabel(secondLink?.label ?? "");
         setSecondLinkOpen(Boolean(secondLink?.destinationUrl));
         setRequireFollow(c.requireFollow ?? false);
         setFollowPromptMessage(c.followPromptMessage ?? "");
