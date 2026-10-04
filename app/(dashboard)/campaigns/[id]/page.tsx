@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
-import { accountLabel, campaignOptions, platformName } from "@/lib/campaigns/options";
+import { accountLabel, platformName, sendsDm } from "@/lib/campaigns/options";
 import type { Platform } from "@/app/generated/prisma/client";
 
 interface Campaign {
@@ -146,7 +146,7 @@ export default function CampaignDetailPage() {
       : campaign.publicReplyMessage
         ? [campaign.publicReplyMessage]
         : [];
-  const canSendDm = campaignOptions(campaign.connectedAccount.platform).dm;
+  const canSendDm = sendsDm(campaign.connectedAccount.platform, campaign.dmMessage);
   const hasLink = Boolean(campaign.trackedLinks?.[0]?.destinationUrl);
   const hasSecondLink = Boolean(campaign.trackedLinks?.[1]?.destinationUrl);
 

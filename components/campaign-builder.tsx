@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
-import { campaignOptions, platformName } from "@/lib/campaigns/options";
+import { campaignActionsError, campaignOptions, platformName } from "@/lib/campaigns/options";
 import PostPicker from "@/components/post-picker";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
 import { readCache, writeCache } from "@/lib/client-cache";
@@ -409,15 +409,22 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       return setError("Pick a post or reel to trigger the campaign.");
     if (matchMode === "specific" && keywords.length === 0)
       return setError("Add at least one keyword, or switch to any word.");
-    if (canSendDm && !dmMessage.trim()) return setError("Add the DM with the link.");
+    const actionsError = campaignActionsError(platform, {
+      dmMessage,
+      publicReplyEnabled: publicReplyOn,
+      publicReplyMessages,
+      openingDmEnabled,
+      requireFollow,
+      followUpEnabled,
+      dmTriggerEnabled,
+      trackedDestinationUrl,
+      secondaryDestinationUrl,
+    });
+    if (actionsError) return setError(actionsError);
     if (canSendDm && openingDmEnabled && (!openingDmMessage.trim() || !openingDmButtonLabel.trim()))
       return setError("Your opening DM needs a message and a button label.");
     if (publicReplyOn && publicReplyMessages.every((m) => !m.trim()))
-      return setError(
-        canSendDm
-          ? "Add at least one public reply."
-          : `${platformName(platform)} has no messaging API, so this campaign needs a public reply.`
-      );
+      return setError("Add at least one public reply.");
 
     setSaving(true);
 

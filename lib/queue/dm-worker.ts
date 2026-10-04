@@ -18,7 +18,7 @@ import {
 } from "@/lib/meta/client";
 import { adapterFor } from "@/lib/platforms/registry";
 import { supports, type MessagingCapability } from "@/lib/platforms/types";
-import { platformName } from "@/lib/campaigns/options";
+import { platformName, sendsDm } from "@/lib/campaigns/options";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 import { reserveDMSlot } from "@/lib/utils/rate-limiter";
@@ -476,10 +476,11 @@ async function processComment(job: JobLike<ProcessCommentJob>): Promise<void> {
       }
     }
 
-    // On a platform with no messaging API the public reply is the entire
-    // response, so the run settles here. Falling through would strand it at
-    // PENDING forever, and the fleet view reads status to decide what is broken.
-    if (!messaging) {
+    // When the platform cannot DM, or the campaign has no DM, the public reply
+    // is the entire response and the run settles here. Falling through would
+    // strand it at PENDING forever, which the fleet view reads as broken, or
+    // spend the comment's one private reply on an empty message.
+    if (!messaging || !sendsDm(platform, automation.dmMessage)) {
       await prisma.responseRun.update({
         where: {
           campaignId_triggerKey: { campaignId: automation.id, triggerKey: commentId },
@@ -490,7 +491,9 @@ async function processComment(job: JobLike<ProcessCommentJob>): Promise<void> {
               status: "FAILED",
               errorMessage:
                 publicReplyFailure ??
-                `${platformName(platform)} can only reply publicly, and this campaign has no public reply configured`,
+                (messaging
+                  ? "This campaign has no DM and no public reply configured"
+                  : `${platformName(platform)} can only reply publicly, and this campaign has no public reply configured`),
             },
       });
       continue;
@@ -889,7 +892,9 @@ async function processPostback(job: JobLike<ProcessPostbackJob>): Promise<void> 
   if (
     !automation ||
     automation.connectedAccount.instagramId !== instagramAccountId ||
-    !automation.connectedAccount.accessToken
+    !automation.connectedAccount.accessToken ||
+    // A button sent before the campaign's DM was removed has nothing to reveal.
+    !sendsDm(platform, automation.dmMessage)
   ) {
     return;
   }
