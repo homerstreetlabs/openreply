@@ -38,6 +38,72 @@ export function campaignOptions(platform: Platform): CampaignOptions {
   };
 }
 
+/**
+ * Whether a campaign sends a DM, which is not whether its platform can. An
+ * Instagram campaign with no DM written replies under the comment and stops,
+ * exactly as a YouTube one does.
+ */
+export function sendsDm(platform: Platform, dmMessage: string): boolean {
+  return campaignOptions(platform).dm && dmMessage.trim() !== "";
+}
+
+/**
+ * The fields that decide what a campaign sends, named as the builder posts them
+ * and the row stores them.
+ */
+export interface CampaignActions {
+  readonly dmMessage: string;
+  readonly publicReplyEnabled: boolean;
+  readonly publicReplyMessages: readonly string[];
+  /** The single reply stored before variants existed. */
+  readonly publicReplyMessage?: string | null;
+  readonly openingDmEnabled: boolean;
+  readonly requireFollow: boolean;
+  readonly followUpEnabled: boolean;
+  readonly dmTriggerEnabled: boolean;
+  readonly trackedDestinationUrl?: string | null;
+  readonly secondaryDestinationUrl?: string | null;
+}
+
+/**
+ * Why a campaign cannot be saved as written, or null when it can. It has to
+ * send something, and a setting that only works inside a DM needs one to work
+ * in. The builder and the API both ask this, so they refuse the same campaigns
+ * in the same words.
+ */
+export function campaignActionsError(
+  platform: Platform,
+  campaign: CampaignActions
+): string | null {
+  if (sendsDm(platform, campaign.dmMessage)) return null;
+
+  const canDm = campaignOptions(platform).dm;
+  const publicReply =
+    campaign.publicReplyEnabled &&
+    [...campaign.publicReplyMessages, campaign.publicReplyMessage ?? ""].some((m) => m.trim());
+  if (!publicReply) {
+    return canDm
+      ? "Write the DM or a public reply, so this campaign has something to send."
+      : `${platformName(platform)} has no messaging API, so this campaign needs a public reply.`;
+  }
+
+  const hasLink = Boolean(
+    campaign.trackedDestinationUrl?.trim() || campaign.secondaryDestinationUrl?.trim()
+  );
+  const dmOnly: [on: boolean, fix: string][] = [
+    [campaign.openingDmEnabled, "turn off the opening DM"],
+    [campaign.requireFollow, "turn off the follow requirement"],
+    [campaign.followUpEnabled, "turn off the follow-up message"],
+    [campaign.dmTriggerEnabled, "turn off replying when someone DMs"],
+    [hasLink, "remove the link"],
+  ];
+  const fix = dmOnly.find(([on]) => on)?.[1];
+  if (!fix) return null;
+  return canDm
+    ? `Write the DM, or ${fix}.`
+    : `${platformName(platform)} has no messaging API, so ${fix}.`;
+}
+
 const PLATFORM_NAMES = {
   INSTAGRAM: "Instagram",
   FACEBOOK: "Facebook",

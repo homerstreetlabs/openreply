@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 
-import { accountLabel, campaignOptions, platformName } from "../lib/campaigns/options";
+import {
+  accountLabel,
+  campaignActionsError,
+  campaignOptions,
+  platformName,
+  sendsDm,
+  type CampaignActions,
+} from "../lib/campaigns/options";
 import type { Platform } from "../app/generated/prisma/client";
 
 const ALL: Platform[] = ["INSTAGRAM", "FACEBOOK", "YOUTUBE", "TIKTOK"];
@@ -72,5 +79,87 @@ describe("campaign options", () => {
     for (const platform of ALL) {
       expect(accountLabel(platform, "handle")).toContain("handle");
     }
+  });
+});
+
+describe("what a campaign sends", () => {
+  const commentOnly: CampaignActions = {
+    dmMessage: "",
+    publicReplyEnabled: true,
+    publicReplyMessages: ["thanks for asking!"],
+    openingDmEnabled: false,
+    requireFollow: false,
+    followUpEnabled: false,
+    dmTriggerEnabled: false,
+    trackedDestinationUrl: "",
+    secondaryDestinationUrl: "",
+  };
+
+  it("sends a DM only where the platform can and one is written", () => {
+    expect(sendsDm("INSTAGRAM", "here's the link")).toBe(true);
+    expect(sendsDm("INSTAGRAM", "")).toBe(false);
+    expect(sendsDm("INSTAGRAM", "   ")).toBe(false);
+    expect(sendsDm("YOUTUBE", "here's the link")).toBe(false);
+  });
+
+  it("accepts a public reply with no DM on a platform that can DM", () => {
+    expect(campaignActionsError("INSTAGRAM", commentOnly)).toBeNull();
+    expect(campaignActionsError("FACEBOOK", commentOnly)).toBeNull();
+  });
+
+  it("accepts a DM with no public reply", () => {
+    expect(
+      campaignActionsError("INSTAGRAM", {
+        ...commentOnly,
+        dmMessage: "here's the link",
+        publicReplyEnabled: false,
+        publicReplyMessages: [],
+      })
+    ).toBeNull();
+  });
+
+  it("refuses a campaign that sends nothing", () => {
+    for (const nothing of [
+      { ...commentOnly, publicReplyEnabled: false },
+      { ...commentOnly, publicReplyMessages: ["  "] },
+    ]) {
+      expect(campaignActionsError("INSTAGRAM", nothing)).toMatch(/DM or a public reply/);
+      expect(campaignActionsError("YOUTUBE", nothing)).toMatch(/YouTube .* needs a public reply/);
+    }
+  });
+
+  it("counts a reply stored before variants existed", () => {
+    expect(
+      campaignActionsError("INSTAGRAM", {
+        ...commentOnly,
+        publicReplyMessages: [],
+        publicReplyMessage: "thanks for asking!",
+      })
+    ).toBeNull();
+  });
+
+  it("refuses each setting that only works inside a DM when there is none", () => {
+    const cases: [Partial<CampaignActions>, RegExp][] = [
+      [{ openingDmEnabled: true }, /opening DM/],
+      [{ requireFollow: true }, /follow requirement/],
+      [{ followUpEnabled: true }, /follow-up/],
+      [{ dmTriggerEnabled: true }, /someone DMs/],
+      [{ trackedDestinationUrl: "https://example.com" }, /link/],
+      [{ secondaryDestinationUrl: "https://example.com" }, /link/],
+    ];
+    for (const [setting, named] of cases) {
+      const error = campaignActionsError("INSTAGRAM", { ...commentOnly, ...setting });
+      expect(error).toMatch(/^Write the DM, or /);
+      expect(error).toMatch(named);
+      expect(
+        campaignActionsError("INSTAGRAM", { ...commentOnly, ...setting, dmMessage: "hi" })
+      ).toBeNull();
+    }
+  });
+
+  it("does not ask for a DM the platform cannot send", () => {
+    const error = campaignActionsError("YOUTUBE", { ...commentOnly, requireFollow: true });
+    expect(error).toMatch(/follow requirement/);
+    expect(error).not.toMatch(/Write the DM/);
   });
 });

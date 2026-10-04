@@ -4,7 +4,7 @@ import { actingWorkspace, PlatformAccessError } from "@/lib/tenancy/acting-works
 import { compile } from "@/lib/campaigns/compile";
 import { draftFromColumns } from "@/lib/campaigns/from-columns";
 import { platformCeiling } from "@/lib/campaigns/steps";
-import { campaignOptions } from "@/lib/campaigns/options";
+import { campaignActionsError } from "@/lib/campaigns/options";
 import { prisma } from "@/lib/db/client";
 import { calculateCtr, normalizeTopKeywords } from "@/lib/tracking/analytics";
 import { buildTrackedUrl } from "@/lib/tracking/message";
@@ -31,8 +31,8 @@ const createAutomationSchema = z
     keywords: z.array(z.string().min(1).max(50)).max(10).optional().default([]),
     matchAnyWord: z.boolean().optional().default(false),
     dmTriggerEnabled: z.boolean().optional().default(false),
-    // Required only where the account can send one, which is not known until
-    // the account is resolved below. YouTube and TikTok campaigns have no DM.
+    // Empty for a campaign that only replies publicly. Whether that leaves it
+    // anything to send depends on the account, which is resolved below.
     dmMessage: z.string().max(1000).optional().default(""),
     openingDmEnabled: z.boolean().optional().default(false),
     openingDmMessage: z.string().max(1000).optional().nullable(),
@@ -96,7 +96,7 @@ const updateAutomationSchema = z.object({
   keywords: z.array(z.string().min(1).max(50)).max(10).optional(),
   matchAnyWord: z.boolean().optional(),
   dmTriggerEnabled: z.boolean().optional(),
-  dmMessage: z.string().min(1).max(1000).optional(),
+  dmMessage: z.string().max(1000).optional(),
   openingDmEnabled: z.boolean().optional(),
   openingDmMessage: z.string().max(1000).optional().nullable(),
   openingDmButtonLabel: z.string().max(64).optional().nullable(),
@@ -382,11 +382,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (campaignOptions(account.platform).dm && !parsed.data.dmMessage.trim()) {
-    return NextResponse.json(
-      { success: false, error: "Write the DM this campaign sends" },
-      { status: 400 }
-    );
+  const actionsError = campaignActionsError(account.platform, parsed.data);
+  if (actionsError) {
+    return NextResponse.json({ success: false, error: actionsError }, { status: 400 });
   }
 
   const { trackedDestinationUrl, secondaryDestinationUrl, secondaryButtonLabel } =
@@ -579,6 +577,10 @@ export async function PATCH(request: NextRequest) {
 
   const existing = await prisma.campaign.findFirst({
     where: { id: campaignId, workspaceId },
+    include: {
+      connectedAccount: { select: { platform: true } },
+      trackedLinks: { select: { destinationUrl: true }, orderBy: { createdAt: "asc" } },
+    },
   });
 
   if (!existing) {
@@ -626,6 +628,21 @@ export async function PATCH(request: NextRequest) {
   if (automationData.publicReplyEnabled === false) {
     automationData.publicReplyMessages = [];
     automationData.publicReplyMessage = null;
+  }
+
+  // Checked on what the campaign becomes, since a patch can be partial. Pausing
+  // is never refused: a creator must always be able to stop a campaign.
+  const next = { ...existing, ...automationData };
+  const actionsError = next.isActive
+    ? campaignActionsError(existing.connectedAccount.platform, {
+        ...next,
+        trackedDestinationUrl: trackedDestinationUrl ?? existing.trackedLinks[0]?.destinationUrl,
+        secondaryDestinationUrl:
+          secondaryDestinationUrl ?? existing.trackedLinks[1]?.destinationUrl,
+      })
+    : null;
+  if (actionsError) {
+    return NextResponse.json({ success: false, error: actionsError }, { status: 400 });
   }
 
   const updated = await prisma.campaign.update({
