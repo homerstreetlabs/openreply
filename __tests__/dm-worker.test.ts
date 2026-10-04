@@ -9,6 +9,7 @@ const {
   mockSendDirectMessageWithButton,
   mockSendDirectMessage,
   mockSendDirectMessageWithLinkButton,
+  mockSendCommentReply,
   mockDecryptToken,
   mockMatchKeywords,
   mockReserveDMSlot,
@@ -55,6 +56,7 @@ const {
   mockSendDirectMessageWithButton: vi.fn(),
   mockSendDirectMessage: vi.fn(),
   mockSendDirectMessageWithLinkButton: vi.fn(),
+  mockSendCommentReply: vi.fn(),
   mockDecryptToken: vi.fn(),
   mockMatchKeywords: vi.fn(),
   mockReserveDMSlot: vi.fn(),
@@ -75,7 +77,7 @@ vi.mock("@/lib/meta/client", () => ({
   sendDirectMessageWithButton: mockSendDirectMessageWithButton,
   sendDirectMessage: mockSendDirectMessage,
   sendDirectMessageWithLinkButton: mockSendDirectMessageWithLinkButton,
-  sendCommentReply: vi.fn(),
+  sendCommentReply: mockSendCommentReply,
   MetaApiError: class MetaApiError extends Error {
     code: number;
     constructor(
@@ -1222,5 +1224,81 @@ describe("DM Worker — remembering who we can message", () => {
         data: expect.objectContaining({ status: "SENT" }),
       })
     );
+  });
+});
+
+/**
+ * A campaign on a platform that can DM, written to reply under the comment and
+ * nothing else. The worker used to read "Instagram can DM" as "this campaign
+ * sends one", so it spent the comment's one private reply on an empty message.
+ */
+describe("DM Worker — a campaign with no DM", () => {
+  const commentOnly = {
+    ...mockAutomation,
+    dmMessage: "",
+    publicReplyEnabled: true,
+    publicReplyMessages: ["replied! check the pinned comment"],
+  };
+
+  function settled() {
+    return mockPrisma.responseRun.update.mock.calls.at(-1)?.[0];
+  }
+
+  it("posts the public reply, sends no private reply, and settles the run", async () => {
+    mockPrisma.campaign.findMany.mockResolvedValue([commentOnly]);
+
+    await getProcessor()(createMockJob());
+
+    expect(mockSendCommentReply).toHaveBeenCalledWith(
+      "decrypted_token",
+      "comment_555",
+      "replied! check the pinned comment"
+    );
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockSendPrivateReplyWithLinkButton).not.toHaveBeenCalled();
+    expect(mockSendPrivateReplyWithButton).not.toHaveBeenCalled();
+    expect(mockReserveWorkspaceDMSend).not.toHaveBeenCalled();
+    expect(settled().data.status).toBe("SENT");
+  });
+
+  it("fails the run without blaming the platform when there is nothing to send", async () => {
+    mockPrisma.campaign.findMany.mockResolvedValue([
+      { ...commentOnly, publicReplyEnabled: false, publicReplyMessages: [] },
+    ]);
+
+    await getProcessor()(createMockJob());
+
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(settled().data.status).toBe("FAILED");
+    expect(settled().data.errorMessage).toMatch(/no DM/);
+    expect(settled().data.errorMessage).not.toMatch(/can only reply publicly/);
+  });
+
+  it("still sends the DM when the campaign has one", async () => {
+    mockPrisma.campaign.findMany.mockResolvedValue([
+      { ...commentOnly, dmMessage: mockAutomation.dmMessage },
+    ]);
+
+    await getProcessor()(createMockJob());
+
+    expect(mockSendCommentReply).toHaveBeenCalled();
+    expect(mockSendPrivateReply).toHaveBeenCalledWith(
+      "decrypted_token",
+      "ig_456",
+      "comment_555",
+      "Hey commenter_user! Here is the link: https://example.com"
+    );
+    expect(settled().data.status).toBe("SENT");
+  });
+
+  it("sends nothing when a button from before the DM was removed is tapped", async () => {
+    mockPrisma.campaign.findMany.mockResolvedValue([]);
+    mockPrisma.campaign.findFirst.mockResolvedValue(commentOnly);
+
+    await getProcessor()(createMockPostbackJob());
+
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+    expect(mockSendDirectMessageWithLinkButton).not.toHaveBeenCalled();
+    expect(mockReserveWorkspaceDMSend).not.toHaveBeenCalled();
   });
 });
