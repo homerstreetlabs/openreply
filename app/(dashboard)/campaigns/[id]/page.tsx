@@ -146,7 +146,7 @@ export default function CampaignDetailPage() {
       : campaign.publicReplyMessage
         ? [campaign.publicReplyMessage]
         : [];
-  const canSendDm = sendsDm(campaign.connectedAccount.platform, campaign.dmMessage);
+  const hasDm = sendsDm(campaign.connectedAccount.platform, campaign.dmMessage);
   const hasLink = Boolean(campaign.trackedLinks?.[0]?.destinationUrl);
   const hasSecondLink = Boolean(campaign.trackedLinks?.[1]?.destinationUrl);
 
@@ -262,7 +262,7 @@ export default function CampaignDetailPage() {
           </Summary>
         )}
 
-        {canSendDm && (
+        {hasDm && (
           <Summary title="And then, they will get a DM">
             <FieldBox>{campaign.dmMessage}</FieldBox>
             {hasLink && (
@@ -358,7 +358,7 @@ export default function CampaignDetailPage() {
           <CampaignPreview
             tab={previewTab}
             onTabChange={setPreviewTab}
-            canSendDm={canSendDm}
+            canSendDm={hasDm}
             username={campaign.connectedAccount.username}
             avatarUrl={avatarUrl}
             postThumb={postThumb}
