@@ -8,6 +8,7 @@ import { lookupProviderApp } from "@/lib/platforms/provider-apps";
 import { readState } from "@/lib/platforms/connect-state";
 import { negotiate } from "@/lib/platforms/negotiate";
 import type { ConnectedIdentity, Platform } from "@/lib/platforms/types";
+import type { ConnectOutcome } from "@/components/connect-notice";
 
 export const runtime = "nodejs";
 
@@ -42,7 +43,7 @@ export async function GET(
   }
 
   const adapter = adapterFor(state.platform);
-  const settings = (outcome: string, extra: Record<string, string> = {}) =>
+  const settings = (outcome: ConnectOutcome, extra: Record<string, string> = {}) =>
     NextResponse.redirect(
       `${baseUrl}/settings?${new URLSearchParams({ connect: outcome, platform: state.platform, ...extra })}`
     );
@@ -63,21 +64,17 @@ export async function GET(
     // account another workspace owns would refresh that workspace's row and
     // leave this one with nothing.
     let stored = 0;
-    let taken = 0;
     for (const identity of identities) {
       const { allowed } = await canConnectAccount({
         workspaceId: state.workspaceId,
         externalId: identity.externalId,
       });
-      if (!allowed) {
-        taken++;
-        continue;
-      }
+      if (!allowed) continue;
       await store(state.platform, state.workspaceId, app.id, identity);
       stored++;
     }
 
-    return settings(taken > 0 ? "already_connected" : "ok", { count: String(stored) });
+    return settings(stored < identities.length ? "already_connected" : "ok", { count: String(stored) });
   } catch (err) {
     console.error("[Connect] Exchange failed:", err);
     return settings("failed");

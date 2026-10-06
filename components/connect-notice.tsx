@@ -51,7 +51,9 @@ const OUTCOMES = {
   { tone: Tone; title: (name: string) => string; detail: (name: string, count: number) => string }
 >;
 
-function isOutcome(value: string | null): value is keyof typeof OUTCOMES {
+export type ConnectOutcome = keyof typeof OUTCOMES;
+
+function isOutcome(value: string | null): value is ConnectOutcome {
   return value !== null && Object.hasOwn(OUTCOMES, value);
 }
 
@@ -63,7 +65,7 @@ export function ConnectNotice() {
   const known = OUTCOMES[outcome];
   const platform = Object.values(Platform).find((p) => p === searchParams.get("platform"));
   const name = platform ? platformName(platform) : "Account";
-  const count = Number(searchParams.get("count") ?? 0);
+  const count = Number(searchParams.get("count"));
 
   return (
     <div className={`rounded border p-4 text-sm ${TONE_CLASSES[known.tone]}`}>
