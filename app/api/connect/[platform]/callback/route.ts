@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getBaseUrl } from "@/lib/env";
 import { encryptToken } from "@/lib/meta/oauth";
+import { canConnectAccount } from "@/lib/accounts/directory";
 import { adapterFor } from "@/lib/platforms/registry";
 import { lookupProviderApp } from "@/lib/platforms/provider-apps";
 import { readState } from "@/lib/platforms/connect-state";
@@ -41,6 +42,10 @@ export async function GET(
   }
 
   const adapter = adapterFor(state.platform);
+  const settings = (outcome: string, extra: Record<string, string> = {}) =>
+    NextResponse.redirect(
+      `${baseUrl}/settings?${new URLSearchParams({ connect: outcome, platform: state.platform, ...extra })}`
+    );
 
   try {
     const app = await lookupProviderApp(state.platform, state.slug);
@@ -51,17 +56,31 @@ export async function GET(
     );
 
     if (identities.length === 0) {
-      return NextResponse.redirect(`${baseUrl}/settings?connect=nothing_to_connect`);
+      return settings("nothing_to_connect");
     }
 
+    // The account row is keyed by the platform's id alone, so storing an
+    // account another workspace owns would refresh that workspace's row and
+    // leave this one with nothing.
+    let stored = 0;
+    let taken = 0;
     for (const identity of identities) {
+      const { allowed } = await canConnectAccount({
+        workspaceId: state.workspaceId,
+        externalId: identity.externalId,
+      });
+      if (!allowed) {
+        taken++;
+        continue;
+      }
       await store(state.platform, state.workspaceId, app.id, identity);
+      stored++;
     }
 
-    return NextResponse.redirect(`${baseUrl}/settings?connect=ok&count=${identities.length}`);
+    return settings(taken > 0 ? "already_connected" : "ok", { count: String(stored) });
   } catch (err) {
     console.error("[Connect] Exchange failed:", err);
-    return NextResponse.redirect(`${baseUrl}/settings?connect=failed`);
+    return settings("failed");
   }
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
+import { ConnectNotice } from "@/components/connect-notice";
 import type { Platform } from "@/app/generated/prisma/client";
 
 /**
@@ -158,11 +158,11 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
-      {/* Surfaces the ?instagram= code the OAuth routes redirect back with.
+      {/* Surfaces the ?connect= outcome the OAuth callback redirects back with.
           Needs a Suspense boundary: useSearchParams in a prerendered client
           page fails the production build without one. */}
       <Suspense fallback={null}>
-        <InstagramConnectNotice />
+        <ConnectNotice />
       </Suspense>
 
       <section className="panel rounded p-4 sm:p-6">
