@@ -130,7 +130,6 @@ const eslintConfig = defineConfig([
     "app/api/workspace/members/route.ts",
     "app/page.tsx",
     "components/campaign-builder.tsx",
-    "components/instagram-connect-notice.tsx",
     "components/status-badge.tsx",
     "components/top-bar.tsx",
     "lib/client-cache.ts",
