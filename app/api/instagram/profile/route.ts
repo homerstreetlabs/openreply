@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionScope } from "@/lib/session";
+import { actingWorkspace, PlatformAccessError } from "@/lib/tenancy/acting-workspace";
 import { accountWithToken } from "@/lib/accounts/directory";
 import { adapterFor } from "@/lib/platforms/registry";
 
@@ -14,8 +14,19 @@ export const dynamic = "force-dynamic";
  * one platform's token to another platform's host.
  */
 export async function GET(request: NextRequest) {
-  const scope = await getSessionScope();
-  if (!scope) {
+  let acting;
+  try {
+    acting = await actingWorkspace(
+      request.nextUrl.searchParams.get("workspaceId"),
+      "read account profile"
+    );
+  } catch (error) {
+    if (error instanceof PlatformAccessError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 403 });
+    }
+    throw error;
+  }
+  if (!acting) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
@@ -27,7 +38,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const resolved = await accountWithToken(scope.workspaceId, accountId);
+  const resolved = await accountWithToken(acting.workspaceId, accountId);
   if (!resolved) {
     return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
   }
