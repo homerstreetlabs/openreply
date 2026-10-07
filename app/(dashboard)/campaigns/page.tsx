@@ -151,8 +151,10 @@ export default function CampaignsPage() {
     /* eslint-enable react-hooks/set-state-in-effect */
 
     Promise.all(
-      accountIds.map((accountId) =>
-        fetch(`/api/posts?accountId=${accountId}&limit=50`)
+      accountIds.map((accountId) => {
+        const params = new URLSearchParams({ accountId, limit: "50" });
+        if (actingFor) params.set("workspaceId", actingFor);
+        return fetch(`/api/posts?${params}`)
           .then((res) => res.json())
           .then((payload) => {
             if (!payload.success) return [];
@@ -165,8 +167,8 @@ export default function CampaignsPage() {
               videoUrl: string | null;
             }[];
           })
-          .catch(() => [])
-      )
+          .catch(() => []);
+      })
     ).then((lists) => {
       if (cancelled) return;
       const thumbs: Record<string, string> = {};
@@ -185,7 +187,7 @@ export default function CampaignsPage() {
     return () => {
       cancelled = true;
     };
-  }, [automations]);
+  }, [automations, actingFor]);
 
   // Close the reel lightbox on Escape.
   useEffect(() => {
@@ -398,7 +400,13 @@ export default function CampaignsPage() {
           return (
           <div
             key={auto.id}
-            onClick={() => router.push(`/campaigns/${auto.id}`)}
+            onClick={() =>
+              router.push(
+                actingFor
+                  ? `/campaigns/${auto.id}?workspaceId=${actingFor}`
+                  : `/campaigns/${auto.id}`
+              )
+            }
             className="panel rounded p-4 hover:border-border-hover transition-all cursor-pointer"
           >
             {/* Wraps rather than compressing: on a phone the action buttons drop
