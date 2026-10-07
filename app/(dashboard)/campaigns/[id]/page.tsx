@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
 import { accountLabel, platformName, sendsDm } from "@/lib/campaigns/options";
@@ -61,6 +61,11 @@ type Tab = "insights" | "preview";
 export default function CampaignDetailPage() {
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
+  // Set when a platform admin opened this from a creator's campaign list. It
+  // rides on every request and link, or the campaign is looked up in the
+  // admin's own workspace and is not found.
+  const actingFor = useSearchParams().get("workspaceId");
+  const campaignsHref = actingFor ? `/campaigns?workspaceId=${actingFor}` : "/campaigns";
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,7 +77,9 @@ export default function CampaignDetailPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch("/api/automations", { cache: "no-store" })
+    const params = new URLSearchParams();
+    if (actingFor) params.set("workspaceId", actingFor);
+    fetch(`/api/automations${params.size ? `?${params}` : ""}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((payload) => {
         if (!payload.success) return setNotFound(true);
@@ -82,12 +89,13 @@ export default function CampaignDetailPage() {
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, actingFor]);
 
   useEffect(() => {
     if (!campaign) return;
-    const acct = campaign.connectedAccountId;
-    fetch(`/api/instagram/profile?accountId=${acct}`)
+    const params = new URLSearchParams({ accountId: campaign.connectedAccountId });
+    if (actingFor) params.set("workspaceId", actingFor);
+    fetch(`/api/instagram/profile?${params}`)
       .then((r) => r.json())
       .then((d) =>
         setAvatarUrl(d.success ? d.data.profilePictureUrl ?? null : null)
@@ -95,7 +103,7 @@ export default function CampaignDetailPage() {
       .catch(() => setAvatarUrl(null));
 
     if (campaign.postId) {
-      fetch(`/api/posts?accountId=${acct}&limit=50`)
+      fetch(`/api/posts?${params}&limit=50`)
         .then((r) => r.json())
         .then((payload) => {
           if (!payload.success) return;
@@ -106,7 +114,7 @@ export default function CampaignDetailPage() {
         })
         .catch(() => setPostThumb(null));
     }
-  }, [campaign]);
+  }, [campaign, actingFor]);
 
   async function toggleActive() {
     if (!campaign) return;
@@ -131,7 +139,7 @@ export default function CampaignDetailPage() {
       <div className="panel rounded p-8 text-center">
         <p className="text-sm text-muted">Campaign not found.</p>
         <button
-          onClick={() => router.push("/campaigns")}
+          onClick={() => router.push(campaignsHref)}
           className="mt-4 rounded border border-border px-4 py-2 text-sm text-muted hover:text-foreground"
         >
           Back to campaigns
@@ -172,7 +180,7 @@ export default function CampaignDetailPage() {
       <div className="space-y-6">
         <div className="flex items-center gap-2">
           <Link
-            href="/campaigns"
+            href={campaignsHref}
             className="text-sm text-muted hover:text-foreground"
           >
             &larr; Campaigns
