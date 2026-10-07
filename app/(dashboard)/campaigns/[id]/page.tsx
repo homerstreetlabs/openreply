@@ -5,7 +5,8 @@
  *
  * Clicking a campaign opens this read-only view: a summary of the automation
  * on the left, and Insights / Preview tabs on the right. Edit and Stop/Resume
- * live in the top bar.
+ * live in the top bar, except for a platform admin viewing a creator's
+ * campaign: PATCH only acts on the caller's own workspace, so both would fail.
  */
 
 import { useEffect, useState } from "react";
@@ -327,25 +328,27 @@ export default function CampaignDetailPage() {
               Preview
             </TabButton>
           </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/campaigns/${campaign.id}/edit`}
-              className="rounded border border-border px-3 py-1.5 text-sm text-muted hover:text-foreground"
-            >
-              Edit
-            </Link>
-            <button
-              onClick={toggleActive}
-              disabled={busy}
-              className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
-                campaign.isActive
-                  ? "border-error/30 text-error hover:bg-error/10"
-                  : "border-success/30 text-success hover:bg-success/10"
-              }`}
-            >
-              {campaign.isActive ? "Stop" : "Resume"}
-            </button>
-          </div>
+          {!actingFor && (
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/campaigns/${campaign.id}/edit`}
+                className="rounded border border-border px-3 py-1.5 text-sm text-muted hover:text-foreground"
+              >
+                Edit
+              </Link>
+              <button
+                onClick={toggleActive}
+                disabled={busy}
+                className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
+                  campaign.isActive
+                    ? "border-error/30 text-error hover:bg-error/10"
+                    : "border-success/30 text-success hover:bg-success/10"
+                }`}
+              >
+                {campaign.isActive ? "Stop" : "Resume"}
+              </button>
+            </div>
+          )}
         </div>
 
         {tab === "insights" && (
