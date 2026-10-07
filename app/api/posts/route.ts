@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentWorkspaceId } from "@/lib/session";
+import { actingWorkspace, PlatformAccessError } from "@/lib/tenancy/acting-workspace";
 import { accountDirectory, accountWithToken } from "@/lib/accounts/directory";
 import { adapterFor } from "@/lib/platforms/registry";
 import { platformName } from "@/lib/campaigns/options";
@@ -18,10 +18,22 @@ import { platformName } from "@/lib/campaigns/options";
  * JSON the contract for every platform that followed it.
  */
 export async function GET(request: NextRequest) {
-  const workspaceId = await getCurrentWorkspaceId();
-  if (!workspaceId) {
+  let acting;
+  try {
+    acting = await actingWorkspace(
+      request.nextUrl.searchParams.get("workspaceId"),
+      "read posts"
+    );
+  } catch (error) {
+    if (error instanceof PlatformAccessError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 403 });
+    }
+    throw error;
+  }
+  if (!acting) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
+  const workspaceId = acting.workspaceId;
 
   // An explicit id, or the workspace's default. Either way the account is
   // resolved once and carries its platform, so the adapter below is chosen by
