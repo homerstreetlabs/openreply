@@ -331,6 +331,7 @@ describe("starting a run", () => {
     counterpartyName: "someone",
     postId: "media_1",
     matchedKeyword: "LINK",
+    dmFirst: false,
   };
 
   it("converges on one run per campaign and trigger", async () => {

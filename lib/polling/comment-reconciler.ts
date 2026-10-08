@@ -224,9 +224,14 @@ async function sweepCampaign(
       where: {
         campaignId: automation.id,
         triggerKey: { in: needsAction.map((c) => c.id) },
-        ...(automation.publicReplyEnabled
-          ? { publicReplySentAt: { not: null } }
-          : { status: "SENT" }),
+        OR: [
+          automation.publicReplyEnabled
+            ? { publicReplySentAt: { not: null } }
+            : { status: "SENT" },
+          // A DM-first run that ended without its DM never posts the public
+          // reply, and sweeping it again would only be refused again.
+          { dmFirst: true, status: { not: "PENDING" }, dmSentAt: null },
+        ],
       },
       select: { triggerKey: true },
     });

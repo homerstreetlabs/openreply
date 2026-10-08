@@ -319,6 +319,12 @@ export interface Trigger {
   readonly counterpartyName: string | null;
   readonly postId: string | null;
   readonly matchedKeyword: string | null;
+  /**
+   * Read only when the run is created. A swept comment can predate the
+   * campaign and already have had its one private reply, so its public reply
+   * waits until the DM has landed.
+   */
+  readonly dmFirst: boolean;
 }
 
 export interface StartedRun {
@@ -326,6 +332,27 @@ export interface StartedRun {
   readonly campaignId: string;
   readonly workspaceId: string;
   readonly connectedAccountId: string;
+  readonly dmFirst: boolean;
+}
+
+/**
+ * The run's own order, which every advance must rebuild identically because
+ * the cursor indexes into it. Only a DM that does not wait on the person moves
+ * ahead, so the public reply cannot be left parked behind a tap.
+ */
+export function deliveryOrder(
+  steps: readonly Step<Platform, StepKind>[],
+  dmFirst: boolean
+): readonly Step<Platform, StepKind>[] {
+  const [first, second, ...rest] = steps;
+  if (
+    !dmFirst ||
+    first?.kind !== "publicReply" ||
+    (second?.kind !== "linkButtons" && second?.kind !== "directMessage")
+  ) {
+    return steps;
+  }
+  return [second, first, ...rest];
 }
 
 /**
@@ -360,11 +387,12 @@ export async function startRuns(
         triggerKey: trigger.triggerKey,
         matchedKeyword: trigger.matchedKeyword,
         status: "PENDING",
+        dmFirst: trigger.dmFirst,
       },
       // Deliberately narrow. A redelivery must not reset the cursor or clear a
       // status the run already reached, or the plan would replay from the top.
       update: { matchedKeyword: trigger.matchedKeyword },
-      select: { id: true },
+      select: { id: true, dmFirst: true },
     });
 
     started.push({
@@ -372,6 +400,7 @@ export async function startRuns(
       campaignId: campaign.id,
       workspaceId: campaign.workspaceId,
       connectedAccountId: campaign.connectedAccountId,
+      dmFirst: run.dmFirst,
     });
   }
 
