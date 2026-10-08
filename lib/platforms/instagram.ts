@@ -1,10 +1,9 @@
 /**
  * Instagram, wrapping the client that already works.
  *
- * This adapter deliberately adds no behaviour. Everything it calls is the code
- * that is in production today, so adopting the adapter interface cannot change
- * how Instagram sends. Facebook is the platform that had to be written; this one
- * only had to be described.
+ * This adapter adds one behaviour, the private-reply retry below. Everything
+ * else it calls is the client unchanged. Facebook is the platform that had to
+ * be written; this one only had to be described.
  */
 
 import {
@@ -18,6 +17,7 @@ import {
   PermissionError,
   refreshLongLivedToken,
   getRecentMediaComments,
+  MetaApiError,
   sendCommentReply,
   type InstagramMedia,
   sendDirectMessage as igSendDirectMessage,
@@ -125,6 +125,27 @@ const discovery: Discovery = {
   },
 };
 
+const REPLY_SETTLE_DELAYS_MS = [2000, 3000];
+
+/**
+ * Meta refuses a private reply with 2534023, "already has a reply", for a
+ * second or so after the account's own public reply on the same comment, then
+ * accepts it. In production every private reply sent within 1.5s of the public
+ * reply was refused and every one sent later landed, so the refusal is retried
+ * past that window rather than failing the run.
+ */
+async function afterPublicReplySettles<T>(send: () => Promise<T>): Promise<T> {
+  for (const delay of REPLY_SETTLE_DELAYS_MS) {
+    try {
+      return await send();
+    } catch (error) {
+      if (!(error instanceof MetaApiError) || error.subcode !== 2534023) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  return send();
+}
+
 const messaging: MessagingCapability = {
   claimsForPrivateReply(commentId) {
     return [
@@ -136,7 +157,9 @@ const messaging: MessagingCapability = {
   },
 
   async sendPrivateReply(accessToken, accountId, commentId, message): Promise<SendResult> {
-    const r = await igSendPrivateReply(accessToken, accountId, commentId, message);
+    const r = await afterPublicReplySettles(() =>
+      igSendPrivateReply(accessToken, accountId, commentId, message)
+    );
     return { messageId: r.message_id, discoveredUserId: r.recipient_id };
   },
 
@@ -147,12 +170,8 @@ const messaging: MessagingCapability = {
     text,
     buttons
   ): Promise<SendResult> {
-    const r = await sendPrivateReplyWithLinkButton(
-      accessToken,
-      accountId,
-      commentId,
-      text,
-      buttons
+    const r = await afterPublicReplySettles(() =>
+      sendPrivateReplyWithLinkButton(accessToken, accountId, commentId, text, buttons)
     );
     return { messageId: r.message_id, discoveredUserId: r.recipient_id };
   },
@@ -187,13 +206,8 @@ const messaging: MessagingCapability = {
     buttonTitle,
     payload
   ): Promise<SendResult> {
-    const r = await igSendPrivateReplyWithButton(
-      accessToken,
-      accountId,
-      commentId,
-      text,
-      buttonTitle,
-      payload
+    const r = await afterPublicReplySettles(() =>
+      igSendPrivateReplyWithButton(accessToken, accountId, commentId, text, buttonTitle, payload)
     );
     return { messageId: r.message_id, discoveredUserId: r.recipient_id };
   },
