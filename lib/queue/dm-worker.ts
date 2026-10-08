@@ -265,6 +265,7 @@ async function processComment(job: JobLike<ProcessCommentJob>): Promise<void> {
       counterpartyName: commenterName ?? null,
       postId: mediaId,
       matchedKeyword: null,
+      dmFirst: job.data.source === "POLLING",
     },
     matched.map((a) => a.id)
   );

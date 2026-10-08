@@ -16,7 +16,13 @@ import { parseStoredPlan } from "@/lib/campaigns/compile";
 import { storedCapabilities } from "@/lib/platforms/negotiate";
 import { executeStep } from "@/lib/runtime/execute-step";
 import type { RunTarget } from "@/lib/runtime/execute-step";
-import { advanceRun, startRuns, type Cause, type Trigger } from "@/lib/runtime/engine";
+import {
+  advanceRun,
+  deliveryOrder,
+  startRuns,
+  type Cause,
+  type Trigger,
+} from "@/lib/runtime/engine";
 
 /** A campaign row with everything a run needs, and nothing it does not. */
 const CAMPAIGN_SELECT = {
@@ -148,7 +154,7 @@ export async function dispatchTrigger(
     const outcome = await advanceRun(
       run.runId,
       cause,
-      plan.steps,
+      deliveryOrder(plan.steps, run.dmFirst),
       (step, context) => executeStep(step, context, target),
       account.platform
     );
@@ -180,6 +186,7 @@ export async function advanceDueRuns(limit = 50): Promise<number> {
       counterpartyName: true,
       campaignId: true,
       matchedKeyword: true,
+      dmFirst: true,
       campaign: { select: CAMPAIGN_SELECT },
     },
   });
@@ -198,6 +205,7 @@ export async function advanceDueRuns(limit = 50): Promise<number> {
         counterpartyName: run.counterpartyName,
         postId: null,
         matchedKeyword: run.matchedKeyword,
+        dmFirst: run.dmFirst,
       },
       [run.campaignId],
       { kind: "timeout" }

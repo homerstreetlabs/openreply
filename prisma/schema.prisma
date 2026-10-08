@@ -344,6 +344,9 @@ model ResponseRun {
   /// needs no change and historical rows stay meaningful.
   dmSentAt          DateTime?
   errorMessage      String?
+  /// Set once at creation for a comment the sweep found. Its public reply
+  /// follows the DM, and the cursor indexes into that order on every advance.
+  dmFirst Boolean @default(false)
   publicReplySentAt DateTime?
   publicReplyError  String?
 
