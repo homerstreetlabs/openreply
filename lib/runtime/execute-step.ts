@@ -176,6 +176,15 @@ export async function executeStep(
   }
 }
 
+export function linkButtonsFor(
+  trackedLinks: RunTarget["trackedLinks"],
+  spec: Step<Platform, "linkButtons">["spec"]
+): { title: string; url: string }[] {
+  return trackedLinks
+    .filter((l) => spec.linkSlugs.includes(l.slug))
+    .map((l) => ({ title: l.label ?? spec.primaryLabel ?? "Open", url: l.destinationUrl }));
+}
+
 type Messaging = NonNullable<ReturnType<typeof adapterFor>["messaging"]>;
 
 async function send(
@@ -217,9 +226,7 @@ async function send(
     case "linkButtons": {
       if (!messaging) return undefined;
       const spec = step.spec;
-      const buttons = target.trackedLinks
-        .filter((l) => spec.linkSlugs.includes(l.slug))
-        .map((l) => ({ title: l.label ?? spec.primaryLabel ?? "Open", url: l.destinationUrl }));
+      const buttons = linkButtonsFor(target.trackedLinks, spec);
       const result = await messaging.sendPrivateReplyWithButtons(
         target.accessToken,
         target.accountExternalId,
