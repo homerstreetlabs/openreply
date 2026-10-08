@@ -17,6 +17,7 @@
  */
 
 import { prisma } from "@/lib/db/client";
+import { acceptCreatorInvitationAtSignIn } from "@/lib/invitations";
 
 export type AdmissionRefusal =
   | "not_invited"
@@ -166,12 +167,11 @@ export async function settleAdmission(
   // never be accepted.
   if (email) {
     await acceptWorkspaceInvitations(userId, normalize(email));
+    await acceptCreatorInvitationAtSignIn(userId, email);
   }
 
-  // A creator's workspace is created by accepting their invitation at
-  // /join/[token], which is a deliberate confirmation step rather than a side
-  // effect of signing in. This only repairs a session that has no membership at
-  // all, which is what the dashboard layout used to do on every render.
+  // This only repairs a session that has no membership at all, which is what
+  // the dashboard layout used to do on every render.
   const membership = await prisma.workspaceMember.findFirst({
     where: { userId },
     select: { id: true },

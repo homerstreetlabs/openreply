@@ -62,8 +62,23 @@ export default async function JoinPage({
   // A read, so the page can name the workspace before anything is created.
   const invitation = await prisma.invitation.findUnique({
     where: { token },
-    select: { email: true, invitedName: true, status: true, expiresAt: true },
+    select: {
+      email: true,
+      invitedName: true,
+      status: true,
+      expiresAt: true,
+      workspace: { select: { ownerId: true } },
+    },
   });
+
+  // Signing in accepts a pending creator invitation, so the person who just
+  // followed their link lands here with it already used by them.
+  if (
+    invitation?.status === "ACCEPTED" &&
+    invitation.workspace?.ownerId === session.user.id
+  ) {
+    redirect("/settings?welcome=1");
+  }
 
   async function accept() {
     "use server";
