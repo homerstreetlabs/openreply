@@ -272,23 +272,67 @@ export async function acceptInvitation(params: {
     return { ok: true, workspaceId: workspace.id, workspaceName: workspace.name };
   }
 
+  const workspace = await claimCreatorInvitation(invitation, params.userId);
+  return { ok: true, workspaceId: workspace.id, workspaceName: workspace.name };
+}
+
+/**
+ * Accept the pending creator invitation for an address as part of signing in.
+ *
+ * Auth.js creates the user row before the sign-in event fires, so a creator
+ * who followed their invitation is already `existing` by the time
+ * `settleAdmission` runs, and used to be given a fallback workspace while the
+ * invitation stayed PENDING forever.
+ */
+export async function acceptCreatorInvitationAtSignIn(
+  userId: string,
+  email: string
+): Promise<void> {
+  const invitation = await prisma.invitation.findFirst({
+    where: {
+      email: normalizeEmail(email),
+      kind: "CREATOR",
+      status: "PENDING",
+      expiresAt: { gt: new Date() },
+    },
+    select: { id: true, email: true, invitedName: true },
+  });
+  if (invitation) await claimCreatorInvitation(invitation, userId);
+}
+
+/**
+ * Reuses a workspace the creator already owns, so accepting at /join after
+ * sign-in has provisioned one does not leave them with two.
+ */
+async function claimCreatorInvitation(
+  invitation: { id: string; email: string; invitedName: string | null },
+  userId: string
+): Promise<{ id: string; name: string }> {
+  const owned = await prisma.workspace.findFirst({
+    where: { ownerId: userId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true },
+  });
+
   const name = invitation.invitedName?.trim()
     ? `${invitation.invitedName.trim()}'s workspace`
     : `${invitation.email.split("@")[0]}'s workspace`;
 
-  const workspace = await prisma.workspace.create({
-    data: {
-      name,
-      ownerId: params.userId,
-      members: { create: { userId: params.userId, role: "OWNER" } },
-    },
-    select: { id: true, name: true },
-  });
+  const workspace =
+    owned ??
+    (await prisma.workspace.create({
+      data: {
+        name,
+        ownerId: userId,
+        members: { create: { userId, role: "OWNER" } },
+      },
+      select: { id: true, name: true },
+    }));
 
   await prisma.invitation.update({
     where: { id: invitation.id },
     data: { status: "ACCEPTED", acceptedAt: new Date(), workspaceId: workspace.id },
   });
 
-  return { ok: true, workspaceId: workspace.id, workspaceName: workspace.name };
+  return workspace;
 }
