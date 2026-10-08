@@ -182,7 +182,10 @@ export function linkButtonsFor(
 ): { title: string; url: string }[] {
   return trackedLinks
     .filter((l) => spec.linkSlugs.includes(l.slug))
-    .map((l) => ({ title: l.label ?? spec.primaryLabel ?? "Open", url: l.destinationUrl }));
+    .map((l, index) => ({
+      title: (index === 0 ? spec.primaryLabel : null) || l.label || "Open",
+      url: l.destinationUrl,
+    }));
 }
 
 type Messaging = NonNullable<ReturnType<typeof adapterFor>["messaging"]>;
