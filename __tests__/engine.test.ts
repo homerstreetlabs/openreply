@@ -23,7 +23,13 @@ const { mockPrisma } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/client", () => ({ prisma: mockPrisma }));
 
-import { advanceRun, leaseRun, startRuns, type StepResult } from "../lib/runtime/engine";
+import {
+  advanceRun,
+  deliveryOrder,
+  leaseRun,
+  startRuns,
+  type StepResult,
+} from "../lib/runtime/engine";
 import { builders } from "../lib/campaigns/steps";
 
 const ig = builders("INSTAGRAM");
@@ -352,3 +358,63 @@ describe("starting a run", () => {
     expect(update.status).toBeUndefined();
   });
 });
+
+/**
+ * A comment the sweep finds can predate the campaign, and may already have had
+ * its one private reply from whatever answered it before. Posting "sent to your
+ * DM" first would then announce a DM that never arrives.
+ */
+describe("a comment the sweep found", () => {
+  const campaign = { id: "camp_1", workspaceId: "ws_1", connectedAccountId: "acct_1" };
+  const swept = {
+    platform: "INSTAGRAM" as const,
+    accountExternalId: "ig_1",
+    triggerKey: "comment_1",
+    text: "APP",
+    counterpartyId: "user_1",
+    counterpartyName: "someone",
+    postId: "media_1",
+    matchedKeyword: "APP",
+    dmFirst: true,
+  };
+  const reply = ig.publicReply({ variants: ["sent to your DM"] });
+  const link = ig.linkButtons({ bodyText: "here", linkSlugs: ["a"], primaryLabel: "Download" });
+
+  it("records on the run, once, that its DM goes first", async () => {
+    mockPrisma.responseRun.upsert.mockResolvedValue({ id: "run_1", dmFirst: true });
+
+    const [run] = await startRuns(swept, [campaign]);
+
+    const call = mockPrisma.responseRun.upsert.mock.calls[0][0];
+    expect(call.create.dmFirst).toBe(true);
+    expect(call.update).not.toHaveProperty("dmFirst");
+    expect(run.dmFirst).toBe(true);
+  });
+
+  it("sends the DM before the public reply", () => {
+    expect(deliveryOrder([reply, link], true).map((s) => s.kind)).toEqual([
+      "linkButtons",
+      "publicReply",
+    ]);
+  });
+
+  it("keeps the compiled order for a run that is not DM-first", () => {
+    expect(deliveryOrder([reply, link], false).map((s) => s.kind)).toEqual([
+      "publicReply",
+      "linkButtons",
+    ]);
+  });
+
+  it("leaves a plan alone when its first DM waits on the person", () => {
+    const opening = ig.openingDm(
+      { text: "tap", buttonLabel: "send" },
+      { awaits: { signals: ["postback"], timeoutMs: 300_000, onTimeout: "continue" } }
+    );
+
+    expect(deliveryOrder([reply, opening], true).map((s) => s.kind)).toEqual([
+      "publicReply",
+      "openingDm",
+    ]);
+  });
+});
+
