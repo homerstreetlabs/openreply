@@ -16,7 +16,7 @@ const { mockPrisma } = vi.hoisted(() => ({
     workspaceMember: { findFirst: vi.fn(), upsert: vi.fn() },
     invitation: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
     platformGrant: { findFirst: vi.fn() },
-    workspace: { create: vi.fn() },
+    workspace: { create: vi.fn(), findFirst: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -36,6 +36,7 @@ beforeEach(() => {
   mockPrisma.workspaceMember.findFirst.mockResolvedValue(membership);
   mockPrisma.invitation.findMany.mockResolvedValue([]);
   mockPrisma.workspace.create.mockResolvedValue({ id: "ws_new", name: "New" });
+  mockPrisma.workspace.findFirst.mockResolvedValue(null);
   mockPrisma.invitation.findFirst.mockResolvedValue(null);
   mockPrisma.platformGrant.findFirst.mockResolvedValue(null);
   mockPrisma.$transaction.mockResolvedValue([]);
@@ -148,5 +149,50 @@ describe("provisioning at sign-in", () => {
 
     expect(mockPrisma.workspace.create).not.toHaveBeenCalled();
     expect(mockPrisma.invitation.findMany).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Auth.js creates the user row before `events.signIn`, so an invited creator
+   * resolves as `existing` there. The fallback used to give them a workspace
+   * and leave their invitation PENDING, so the admin saw it as unaccepted.
+   */
+  describe("a creator with a pending invitation", () => {
+    const invitation = {
+      id: "inv_creator",
+      invitedName: "Sam",
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    };
+
+    beforeEach(() => {
+      mockPrisma.invitation.findFirst.mockImplementation(async ({ where }) =>
+        where.kind === "CREATOR" ? invitation : null
+      );
+    });
+
+    it("accepts it on first sign-in and creates exactly one workspace", async () => {
+      mockPrisma.workspaceMember.findFirst.mockImplementation(async () =>
+        mockPrisma.workspace.create.mock.calls.length > 0 ? membership : null
+      );
+
+      await settleAdmission("user_1", "sam@example.com");
+
+      expect(mockPrisma.workspace.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.invitation.update).toHaveBeenCalledWith({
+        where: { id: "inv_creator" },
+        data: expect.objectContaining({ status: "ACCEPTED", workspaceId: "ws_new" }),
+      });
+    });
+
+    it("settles a stranded invitation against the workspace they already own", async () => {
+      mockPrisma.workspace.findFirst.mockResolvedValue({ id: "ws_1", name: "Creator" });
+
+      await settleAdmission("user_1", "sam@example.com");
+
+      expect(mockPrisma.workspace.create).not.toHaveBeenCalled();
+      expect(mockPrisma.invitation.update).toHaveBeenCalledWith({
+        where: { id: "inv_creator" },
+        data: expect.objectContaining({ status: "ACCEPTED", workspaceId: "ws_1" }),
+      });
+    });
   });
 });
