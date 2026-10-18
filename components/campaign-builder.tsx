@@ -743,7 +743,10 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                 placeholder="Enter a word or multiple"
                 className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
               />
-              <p className="text-xs text-muted">Use commas to separate words</p>
+              <p className="text-xs text-muted">
+                Use commas to separate words. Matching ignores case, so &ldquo;Link&rdquo; and
+                &ldquo;link&rdquo; are the same keyword.
+              </p>
             </div>
           )}
           <Radio
