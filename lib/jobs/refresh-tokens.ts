@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/client";
-import type { Prisma } from "@/app/generated/prisma/client";
+import type { IncidentKind, Prisma } from "@/app/generated/prisma/client";
 import { decryptToken, encryptToken } from "@/lib/meta/oauth";
 import { ADAPTERS, adapterFor } from "@/lib/platforms/registry";
 import type { Platform } from "@/lib/platforms/types";
@@ -15,6 +15,25 @@ import { classifyFailure, raiseIncident, resolveIncident } from "@/lib/ops/incid
  * `__tests__/token-refresh-cadence.test.ts` holds the two together.
  */
 export const TOKEN_REFRESH_CRON = "*/5 * * * *";
+
+/**
+ * The incidents a refresh can raise, and so the ones a successful refresh
+ * clears. A failure the classifier reads as anything else, such as an upstream
+ * 520 page that is not JSON, is still a failed refresh. Filing it under a kind
+ * outside this list would leave it open after the account recovers.
+ */
+const REFRESH_INCIDENTS = [
+  "TOKEN_EXPIRED",
+  "TOKEN_REFRESH_FAILED",
+  "REAUTH_REQUIRED",
+] as const satisfies readonly IncidentKind[];
+
+const REFRESH_INCIDENT_SET = new Set<IncidentKind>(REFRESH_INCIDENTS);
+
+function refreshIncidentKind(error: unknown): IncidentKind {
+  const kind = classifyFailure(error);
+  return REFRESH_INCIDENT_SET.has(kind) ? kind : "TOKEN_REFRESH_FAILED";
+}
 
 /**
  * How often a cron expression fires, for the two shapes this Worker uses: a
@@ -126,7 +145,7 @@ export async function refreshTokens() {
       }
 
       await prisma.connectedAccount.update({ where: { id: account.id }, data });
-      await resolveIncident(account.id, "TOKEN_EXPIRED");
+      await Promise.all(REFRESH_INCIDENTS.map((kind) => resolveIncident(account.id, kind)));
 
       results.push({
         instagramAccountId: account.id,
@@ -141,7 +160,7 @@ export async function refreshTokens() {
       await raiseIncident({
         connectedAccountId: account.id,
         workspaceId: account.workspaceId,
-        kind: classifyFailure(err),
+        kind: refreshIncidentKind(err),
         message: `Token refresh failed for @${account.username}: ${errorMessage}`,
       });
       await prisma.operationalEvent.create({
