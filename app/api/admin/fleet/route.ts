@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { getFleetOverview } from "@/lib/ops/fleet";
+import { NextRequest, NextResponse } from "next/server";
+import { getFleetOverview, parseActivityWindow } from "@/lib/ops/fleet";
 import {
   PlatformAccessError,
   recordAdminAccess,
@@ -9,10 +9,11 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const scope = await requirePlatformScope("SUPPORT_READ");
-    const data = await getFleetOverview(scope);
+    const window = parseActivityWindow(request.nextUrl.searchParams.get("window"));
+    const data = await getFleetOverview(scope, window);
     await recordAdminAccess({ scope, action: "read fleet overview" });
     return NextResponse.json({ success: true, data });
   } catch (error) {

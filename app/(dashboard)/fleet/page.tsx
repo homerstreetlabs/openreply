@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { accountLabel } from "@/lib/campaigns/options";
 import type { Platform } from "@/app/generated/prisma/client";
+import type { ActivityWindow } from "@/lib/ops/fleet";
 
 /**
  * Every connected account across every workspace, worst first.
@@ -31,8 +32,8 @@ interface FleetAccountRow {
   webhookSubscribed: boolean;
   tokenExpiresAt: string | null;
   note: string | null;
-  sent24h: number;
-  failed24h: number;
+  sent: number;
+  failed: number;
   topFailures: FailureReason[];
 }
 
@@ -46,6 +47,7 @@ interface IncidentGroup {
 }
 
 interface FleetOverview {
+  window: ActivityWindow;
   emailPressure: number | null;
   openIncidents: IncidentGroup[];
   summary: {
@@ -53,8 +55,8 @@ interface FleetOverview {
     workspaces: number;
     broken: number;
     degraded: number;
-    sent24h: number;
-    failed24h: number;
+    sent: number;
+    failed: number;
   };
   rows: FleetAccountRow[];
 }
@@ -64,6 +66,8 @@ const STATUS_STYLES = {
   DEGRADED: "bg-amber-500/10 text-amber-600",
   BROKEN: "bg-red-500/10 text-red-600",
 } satisfies Record<AccountStatus, string>;
+
+const ACTIVITY_WINDOW_OPTIONS = ["24h", "7d", "30d"] as const satisfies readonly ActivityWindow[];
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
@@ -79,12 +83,13 @@ export default function FleetPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<AccountStatus | "ALL">("ALL");
+  const [activityWindow, setActivityWindow] = useState<ActivityWindow>("24h");
 
   useEffect(() => {
     let active = true;
 
     async function load() {
-      const response = await fetch("/api/admin/fleet");
+      const response = await fetch(`/api/admin/fleet?window=${activityWindow}`);
       const payload = await response.json();
       if (!active) return;
       if (payload.success) setData(payload.data);
@@ -96,7 +101,7 @@ export default function FleetPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [activityWindow]);
 
   if (loading) return <div className="panel rounded p-8 h-64" />;
 
@@ -117,11 +122,29 @@ export default function FleetPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Fleet</h1>
-        <p className="mt-1 text-sm text-muted">
-          Every connected account across all creators, worst first.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Fleet</h1>
+          <p className="mt-1 text-sm text-muted">
+            Every connected account across all creators, worst first.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {ACTIVITY_WINDOW_OPTIONS.map((w) => (
+            <button
+              key={w}
+              onClick={() => setActivityWindow(w)}
+              aria-pressed={activityWindow === w}
+              className={`rounded border px-3 py-1.5 text-xs font-medium transition ${
+                activityWindow === w
+                  ? "border-accent text-accent"
+                  : "border-border text-muted hover:text-foreground"
+              }`}
+            >
+              {w}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -129,8 +152,8 @@ export default function FleetPage() {
         <Stat label="Creators" value={data.summary.workspaces} />
         <Stat label="Broken" value={data.summary.broken} tone="text-red-600" />
         <Stat label="Degraded" value={data.summary.degraded} tone="text-amber-600" />
-        <Stat label="Sent 24h" value={data.summary.sent24h} />
-        <Stat label="Failed 24h" value={data.summary.failed24h} tone="text-red-600" />
+        <Stat label={`Sent ${data.window}`} value={data.summary.sent} />
+        <Stat label={`Failed ${data.window}`} value={data.summary.failed} tone="text-red-600" />
       </div>
 
       {data.openIncidents.length > 0 && (
@@ -201,8 +224,8 @@ export default function FleetPage() {
                   <th className="px-4 py-3 font-medium">Account</th>
                   <th className="px-4 py-3 font-medium">Creator</th>
                   <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium text-right">Sent 24h</th>
-                  <th className="px-4 py-3 font-medium text-right">Failed</th>
+                  <th className="px-4 py-3 font-medium text-right">Sent {data.window}</th>
+                  <th className="px-4 py-3 font-medium text-right">Failed {data.window}</th>
                   <th className="px-4 py-3 font-medium">Why</th>
                 </tr>
               </thead>
@@ -231,10 +254,10 @@ export default function FleetPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-foreground">
-                        {row.sent24h}
+                        {row.sent}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-red-600">
-                        {row.failed24h || ""}
+                        {row.failed || ""}
                       </td>
                       <td className="px-4 py-3 text-xs text-muted">
                         {row.note && <div>{row.note}</div>}

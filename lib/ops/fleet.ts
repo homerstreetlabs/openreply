@@ -13,7 +13,7 @@
 
 import { prisma } from "@/lib/db/client";
 import { readSendingLimits } from "@/lib/email/limits";
-import type { IncidentKind, IncidentSeverity, Platform } from "@/app/generated/prisma/client";
+import type { DmStatus, IncidentKind, IncidentSeverity, Platform } from "@/app/generated/prisma/client";
 import type { PlatformScope } from "@/lib/tenancy/platform-scope";
 import { adapterFor } from "@/lib/platforms/registry";
 
@@ -41,8 +41,8 @@ export interface FleetAccountRow extends AccountHealth {
   handle: string;
   webhookSubscribed: boolean;
   tokenExpiresAt: Date | null;
-  sent24h: number;
-  failed24h: number;
+  sent: number;
+  failed: number;
   /** Why sends are failing, most common first. Empty when nothing failed. */
   topFailures: FailureReason[];
 }
@@ -52,8 +52,8 @@ export interface FleetSummary {
   workspaces: number;
   broken: number;
   degraded: number;
-  sent24h: number;
-  failed24h: number;
+  sent: number;
+  failed: number;
 }
 
 /**
@@ -74,6 +74,8 @@ export interface IncidentGroup {
 }
 
 export interface FleetOverview {
+  /** The span the sent and failed counts cover. Health status always judges the last day. */
+  window: ActivityWindow;
   summary: FleetSummary;
   rows: FleetAccountRow[];
   openIncidents: IncidentGroup[];
@@ -89,6 +91,22 @@ export interface FleetOverview {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const ACTIVITY_WINDOWS = {
+  "24h": DAY_MS,
+  "7d": 7 * DAY_MS,
+  "30d": 30 * DAY_MS,
+} as const satisfies Record<string, number>;
+
+export type ActivityWindow = keyof typeof ACTIVITY_WINDOWS;
+
+function isActivityWindow(value: string): value is ActivityWindow {
+  return Object.hasOwn(ACTIVITY_WINDOWS, value);
+}
+
+export function parseActivityWindow(value: string | null): ActivityWindow {
+  return value !== null && isActivityWindow(value) ? value : "24h";
+}
 
 const SEVERITY_ORDER = { INFO: 0, WARNING: 1, ERROR: 2 } satisfies Record<IncidentSeverity, number>;
 
@@ -161,6 +179,27 @@ function redact(reason: string): string {
   return match ? `Send refused (${match})` : "Send refused";
 }
 
+interface RunStatusCount {
+  connectedAccountId: string;
+  status: DmStatus;
+  _count: { _all: number };
+}
+
+function countOutcomes(statusCounts: RunStatusCount[]) {
+  const sent = new Map<string, number>();
+  const failed = new Map<string, number>();
+  for (const row of statusCounts) {
+    const target = row.status === "SENT" ? sent : failed;
+    if (row.status === "SENT" || row.status.startsWith("SKIPPED_") || row.status === "FAILED") {
+      target.set(
+        row.connectedAccountId,
+        (target.get(row.connectedAccountId) ?? 0) + row._count._all
+      );
+    }
+  }
+  return { sent, failed };
+}
+
 const STATUS_ORDER = {
   BROKEN: 0,
   DEGRADED: 1,
@@ -175,9 +214,18 @@ const STATUS_ORDER = {
  * and its tier decides whether failure reasons are readable, since a Meta error
  * can quote the comment that triggered it.
  */
-export async function getFleetOverview(scope: PlatformScope): Promise<FleetOverview> {
+export async function getFleetOverview(
+  scope: PlatformScope,
+  window: ActivityWindow
+): Promise<FleetOverview> {
   const now = Date.now();
-  const since = new Date(now - DAY_MS);
+  const since = new Date(now - ACTIVITY_WINDOWS[window]);
+  const countRunsSince = (from: Date) =>
+    prisma.responseRun.groupBy({
+      by: ["connectedAccountId", "status"],
+      where: { updatedAt: { gte: from } },
+      _count: { _all: true },
+    });
 
   const accounts = await prisma.connectedAccount.findMany({
     select: {
@@ -192,12 +240,9 @@ export async function getFleetOverview(scope: PlatformScope): Promise<FleetOverv
     orderBy: { connectedAt: "desc" },
   });
 
-  const [statusCounts, failures, incidents] = await Promise.all([
-    prisma.responseRun.groupBy({
-      by: ["connectedAccountId", "status"],
-      where: { updatedAt: { gte: since } },
-      _count: { _all: true },
-    }),
+  const [windowCounts, dayCounts, failures, incidents] = await Promise.all([
+    countRunsSince(since),
+    window === "24h" ? null : countRunsSince(new Date(now - DAY_MS)),
     prisma.responseRun.findMany({
       where: {
         updatedAt: { gte: since },
@@ -223,17 +268,9 @@ export async function getFleetOverview(scope: PlatformScope): Promise<FleetOverv
     }),
   ]);
 
-  const sent = new Map<string, number>();
-  const failed = new Map<string, number>();
-  for (const row of statusCounts) {
-    const target = row.status === "SENT" ? sent : failed;
-    if (row.status === "SENT" || row.status.startsWith("SKIPPED_") || row.status === "FAILED") {
-      target.set(
-        row.connectedAccountId,
-        (target.get(row.connectedAccountId) ?? 0) + row._count._all
-      );
-    }
-  }
+  const activity = countOutcomes(windowCounts);
+  // An old failure must not break an account today, so health ignores the window.
+  const lastDay = dayCounts ? countOutcomes(dayCounts) : activity;
 
   const reasons = new Map<string, Map<string, FailureReason>>();
   for (const failure of failures) {
@@ -252,8 +289,6 @@ export async function getFleetOverview(scope: PlatformScope): Promise<FleetOverv
   }
 
   const rows: FleetAccountRow[] = accounts.map((account) => {
-    const sent24h = sent.get(account.id) ?? 0;
-    const failed24h = failed.get(account.id) ?? 0;
     return {
       connectedAccountId: account.id,
       workspaceId: account.workspaceId,
@@ -262,16 +297,16 @@ export async function getFleetOverview(scope: PlatformScope): Promise<FleetOverv
       handle: account.username,
       ...classify({
         platform: account.platform,
-        failed24h,
-        sent24h,
+        failed24h: lastDay.failed.get(account.id) ?? 0,
+        sent24h: lastDay.sent.get(account.id) ?? 0,
         webhookSubscribed: account.webhookSubscribed,
         tokenExpiresAt: account.tokenExpiresAt,
         now,
       }),
       webhookSubscribed: account.webhookSubscribed,
       tokenExpiresAt: account.tokenExpiresAt,
-      sent24h,
-      failed24h,
+      sent: activity.sent.get(account.id) ?? 0,
+      failed: activity.failed.get(account.id) ?? 0,
       topFailures: [...(reasons.get(account.id)?.values() ?? [])]
         .sort((a, b) => b.count - a.count)
         .slice(0, 3)
@@ -284,7 +319,7 @@ export async function getFleetOverview(scope: PlatformScope): Promise<FleetOverv
   });
 
   rows.sort(
-    (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.failed24h - a.failed24h
+    (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.failed - a.failed
   );
 
   const grouped = new Map<IncidentKind, IncidentGroup & { seen: Set<string> }>();
@@ -321,6 +356,7 @@ export async function getFleetOverview(scope: PlatformScope): Promise<FleetOverv
   const email = await readSendingLimits();
 
   return {
+    window,
     emailPressure: email?.pressure ?? null,
     openIncidents,
     summary: {
@@ -328,8 +364,8 @@ export async function getFleetOverview(scope: PlatformScope): Promise<FleetOverv
       workspaces: new Set(rows.map((r) => r.workspaceId)).size,
       broken: rows.filter((r) => r.status === "BROKEN").length,
       degraded: rows.filter((r) => r.status === "DEGRADED").length,
-      sent24h: rows.reduce((n, r) => n + r.sent24h, 0),
-      failed24h: rows.reduce((n, r) => n + r.failed24h, 0),
+      sent: rows.reduce((n, r) => n + r.sent, 0),
+      failed: rows.reduce((n, r) => n + r.failed, 0),
     },
     rows,
   };
