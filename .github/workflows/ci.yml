@@ -21,15 +21,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version-file: .node-version
           cache: pnpm
 
       - name: Install dependencies
@@ -90,7 +90,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # The migration guard diffs against a commit that may be many pushes
           # back, whatever last reached production. The default shallow clone
@@ -231,14 +231,15 @@ jobs:
           echo "No migrations added since $base."
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
-      # Keep in step with the `test` job: deploying on a different major to the
-      # one the tests passed on is a difference nothing reports until production.
+      # The exact patch, not a bare major. "24" can resolve to an older 24.x
+      # already cached on the runner image, which may predate a security release.
+      # Both jobs read one file so the tested and deployed versions cannot drift.
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version-file: .node-version
           cache: pnpm
 
       - name: Install dependencies
