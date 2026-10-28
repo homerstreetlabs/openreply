@@ -15,6 +15,19 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "**": ["./node_modules/pg-cloudflare/**/*"],
   },
+
+  // Next 16.4 traces every package.json dependency into any route that reaches
+  // a wasm import, and the Prisma client is one
+  // (https://github.com/vercel/next.js/issues/100314). OpenNext then attaches
+  // every traced .wasm as a Worker module, which took the web Worker from
+  // 3.4 MB to 19 MB gzipped against a 10 MB ceiling. No route loads wasm from
+  // node_modules: the query compiler is emitted into .next/server chunks. The
+  // og directory goes whole, because OpenNext bundles next/og's wasm whenever
+  // that directory is traced at all, and nothing here renders images.
+  // Drop this once that issue's fix ships in a 16.4.x release.
+  outputFileTracingExcludes: {
+    "**": ["./node_modules/**/*.wasm", "./node_modules/**/next/dist/compiled/@vercel/og/**"],
+  },
 };
 
 export default nextConfig;
